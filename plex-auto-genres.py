@@ -26,7 +26,7 @@ tmdb.api_key = os.getenv("TMDB_API_KEY")
 
 example_text = '''example:
 
- python plex-tags.py --library "Anime Shows" --type anime
+ python plex-auto-genres.py --library "Anime Shows" --type anime
 '''
 
 parser = argparse.ArgumentParser(description='Adds genre tags (collections) to your Plex media.', epilog=example_text)
