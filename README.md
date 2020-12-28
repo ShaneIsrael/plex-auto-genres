@@ -2,6 +2,11 @@
 
 Plex Auto Genres is a simple script that will add genre collection tags to your media making it much easier to search for genre specific content
 
+1. [Requirements](#requirements)
+2. [Setup](#Setup)
+3. [Getting Started](#getting_started)
+4. [Troubleshooting](#troubleshooting)
+
 ###### Movies example
 ![Movie Collections](/images/movies.png)
 
@@ -10,8 +15,9 @@ Plex Auto Genres is a simple script that will add genre collection tags to your 
 
 ## Requirements
 1. Python 3
+2. [TMDB Api Key](https://developers.themoviedb.org/3/getting-started/introduction) (Only required for non-anime libraries)
 
-### Optimal Setup
+## Setup
 
 1. Anime / Anime Movies are in their own library on your plex server. **_(Anime and Anime Movies can share the same library)_**
 2. Standard TV Shows are in their own library on your plex server.
@@ -22,7 +28,7 @@ For this to work well your plex library should be sorted. Meaning standard and n
 
 If your anime shows and standard tv shows are in the same library, you can still use this script just choose (**standard**) as the type. However, doing this could cause incorrect genres added to some or all of your anime media entries.
 
-### Getting Started
+## Getting Started <a name="getting_started"></a>
 1. Read the **Optimal Setup** section above
 2. Install the python dependencies listed in `requirements.txt`, if you have pip you can simply do `pip install -r requirements.txt`
 3. Rename the `.env.example` file to `.env`
@@ -46,5 +52,5 @@ python plex-auto-genres.py --library Movies --type standard
 python plex-auto-genres.py --library "Tv Shows" --type standard
 ```
 
-### Troubleshooting
+## Troubleshooting
 1. If you are not seeing any new collections close your plex client and re-open it.
