@@ -22,11 +22,14 @@ Plex Auto Genres is a simple script that will add genre collection tags to your 
 1. Anime / Anime Movies are in their own library on your plex server. **_(Anime and Anime Movies can share the same library)_**
 2. Standard TV Shows are in their own library on your plex server.
 3. Standard Movies are in their own library on your plex server.
-4. Proper titles for your media (see https://support.plex.tv/articles/naming-and-organizing-your-tv-show-files/)
+4. Proper titles for your media, this makes it easier to find the media. (see https://support.plex.tv/articles/naming-and-organizing-your-tv-show-files/)
 
 For this to work well your plex library should be sorted. Meaning standard and non-standard media should not be in the same Plex library. Anime is an example of non-standard media.
 
 If your anime shows and standard tv shows are in the same library, you can still use this script just choose (**standard**) as the type. However, doing this could cause incorrect genres added to some or all of your anime media entries.
+
+###### Here is an example of my plex library setup
+![Plex Library Example](/images/example-library-setup.png)
 
 ## Getting Started <a name="getting_started"></a>
 1. Read the **Optimal Setup** section above
@@ -47,10 +50,12 @@ optional arguments:
                         The type of media contained in the library
 
 example: 
+python plex-auto-genres.py --library "Anime Movies" --type anime
 python plex-auto-genres.py --library "Anime Shows" --type anime
 python plex-auto-genres.py --library Movies --type standard
-python plex-auto-genres.py --library "Tv Shows" --type standard
+python plex-auto-genres.py --library "TV Shows" --type standard
 ```
 
 ## Troubleshooting
 1. If you are not seeing any new collections close your plex client and re-open it.
+2. Delete the generated `plex-*-finished.txt`  and `plex-*-failures.txt` files if you want the script to generate collections from the beginning. You may want to do this if you delete your collections and need them re-created.
