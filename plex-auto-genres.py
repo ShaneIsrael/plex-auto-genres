@@ -76,9 +76,9 @@ def connect_to_plex():
 def get_sleep_time(type):
     if (type == 'standard'):
         if (standard_type == 'movie'):
-            return 0.5 # omdb doesn't have a rate limit, but we sleep for 0.5 anyways
+            return 0.5 # tmdb doesn't have a rate limit, but we sleep for 0.5 anyways
         else:
-            return 1
+            return 0.5 # tmdb
     else:
         return 8 #Jikan fetch requires 2 request with a 4 second sleep on each request
 
