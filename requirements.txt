@@ -1,0 +1,4 @@
+jikanpy
+plexapi
+dotenv
+tmdbv3api
