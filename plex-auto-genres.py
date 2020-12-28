@@ -16,6 +16,7 @@ load_dotenv()
 tmdb = TMDb()
 movie = Movie()
 tv = TV()
+standard_type = None
 
 signal.signal(signal.SIGINT, signal.default_int_handler)
 
@@ -119,9 +120,14 @@ def generate():
     if (os.path.isfile('plex-'+args.type[0]+'-tags-finished.txt')):
         with open('plex-'+args.type[0]+'-tags-finished.txt') as save_data:
             finished_media = json.load(save_data)
-    if (os.path.isfile('plex-'+args.type[0]+'-'+standard_type+'-failures.txt')):
-        with open('plex-'+args.type[0]+'-'+standard_type+'-failures.txt') as save_data:
-            failed_media = json.load(save_data)
+    if (standard_type):
+        if (os.path.isfile('plex-'+args.type[0]+'-'+standard_type+'-failures.txt')):
+            with open('plex-'+args.type[0]+'-'+standard_type+'-failures.txt') as save_data:
+                failed_media = json.load(save_data)
+    else:
+        if (os.path.isfile('plex-'+args.type[0]+'-failures.txt')):
+            with open('plex-'+args.type[0]+'-failures.txt') as save_data:
+                failed_media = json.load(save_data)
     try:
         medias = plex.library.section(args.library[0]).all()
         total_count = len(medias)
@@ -158,7 +164,7 @@ def generate():
         print('\n'+bcolors.FAIL+'Failed to get genre information for '+str(len(failed_media))+' entries. '+bcolors.ENDC+'See '+'plex-'+args.type[0]+'-'+standard_type+'-failures.txt')
 
     except KeyboardInterrupt:
-        print('Operation interupted, progress has been saved.')
+        print('\n\nOperation interupted, progress has been saved.')
         pass
     except Exception as e:
         print(str(e))
@@ -167,8 +173,12 @@ def generate():
         with open('plex-'+args.type[0]+'-tags-finished.txt', 'w') as filehandle:
             json.dump(finished_media, filehandle)
     if (len(failed_media) > 0):
-        with open('plex-'+args.type[0]+'-'+standard_type+'-failures.txt', 'w') as filehandle:
-            json.dump(failed_media, filehandle)
+        if (standard_type):
+            with open('plex-'+args.type[0]+'-'+standard_type+'-failures.txt', 'w') as filehandle:
+                json.dump(failed_media, filehandle)
+        else:
+            with open('plex-'+args.type[0]+'-failures.txt', 'w') as filehandle:
+                json.dump(failed_media, filehandle)
     
     sys.exit(0)
 
