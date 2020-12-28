@@ -1,6 +1,6 @@
-# Plex Collection Genres
+# Plex Auto Genres
 
-Plex Collection Genres is a simple script that will add genre collection tags to your media making it much easier to search for genre specific content
+Plex Auto Genres is a simple script that will add genre collection tags to your media making it much easier to search for genre specific content
 
 ###### Movies example
 ![Movie Collections](/images/movies.png)
@@ -30,7 +30,7 @@ If your anime shows and standard tv shows are in the same library, you can still
 
 You are now ready to run the script
 ```
-usage: plex-tags.py [-h] [--library LIBRARY] [--type {anime,standard}]
+usage: plex-auto-genres.py [-h] [--library LIBRARY] [--type {anime,standard}]
 
 Adds genre tags (collections) to your Plex media.
 
@@ -41,9 +41,9 @@ optional arguments:
                         The type of media contained in the library
 
 example: 
-python plex-tags.py --library "Anime Shows" --type anime
-python plex-tags.py --library Movies --type standard
-python plex-tags.py --library "Tv Shows" --type standard
+python plex-auto-genres.py --library "Anime Shows" --type anime
+python plex-auto-genres.py --library Movies --type standard
+python plex-auto-genres.py --library "Tv Shows" --type standard
 ```
 
 ### Troubleshooting
