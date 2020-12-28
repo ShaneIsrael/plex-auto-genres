@@ -59,3 +59,4 @@ python plex-auto-genres.py --library "TV Shows" --type standard
 ## Troubleshooting
 1. If you are not seeing any new collections close your plex client and re-open it.
 2. Delete the generated `plex-*-finished.txt`  and `plex-*-failures.txt` files if you want the script to generate collections from the beginning. You may want to do this if you delete your collections and need them re-created.
+3. Having the release year in the title of a tv show or movie can cause the lookup to fail in some instances. For example `Battlestar Galactica (2003)` will fail, but `Battlestar Galactica` will not.
