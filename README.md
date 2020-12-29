@@ -46,14 +46,14 @@ Adds genre tags (collections) to your Plex media.
 optional arguments:
   -h, --help            show this help message and exit
   --library LIBRARY     The exact name of the Plex library to generate genre collections for.
-  --type {anime,standard}
+  --type {anime,standard-movie,standard-tv}
                         The type of media contained in the library
 
 example: 
 python plex-auto-genres.py --library "Anime Movies" --type anime
 python plex-auto-genres.py --library "Anime Shows" --type anime
-python plex-auto-genres.py --library Movies --type standard
-python plex-auto-genres.py --library "TV Shows" --type standard
+python plex-auto-genres.py --library Movies --type standard-movie
+python plex-auto-genres.py --library "TV Shows" --type standard-tv
 ```
 
 ## Troubleshooting
