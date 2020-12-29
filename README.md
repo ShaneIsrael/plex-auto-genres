@@ -46,17 +46,22 @@ Adds genre tags (collections) to your Plex media.
 optional arguments:
   -h, --help            show this help message and exit
   --library LIBRARY     The exact name of the Plex library to generate genre collections for.
-  --type {anime,standard}
+  --type {anime,standard-movie,standard-tv}
                         The type of media contained in the library
 
 example: 
 python plex-auto-genres.py --library "Anime Movies" --type anime
 python plex-auto-genres.py --library "Anime Shows" --type anime
-python plex-auto-genres.py --library Movies --type standard
-python plex-auto-genres.py --library "TV Shows" --type standard
+python plex-auto-genres.py --library Movies --type standard-movie
+python plex-auto-genres.py --library "TV Shows" --type standard-tv
 ```
+
+![Example Usage](/images/example-usage.gif)
 
 ## Troubleshooting
 1. If you are not seeing any new collections close your plex client and re-open it.
 2. Delete the generated `plex-*-finished.txt`  and `plex-*-failures.txt` files if you want the script to generate collections from the beginning. You may want to do this if you delete your collections and need them re-created.
 3. Having the release year in the title of a tv show or movie can cause the lookup to fail in some instances. For example `Battlestar Galactica (2003)` will fail, but `Battlestar Galactica` will not.
+
+## Docker Usage
+If you would like to run this via a docker container somebody has made that possible. [Follow their instructions here](https://github.com/fdarveau/plex-auto-genres-docker)
