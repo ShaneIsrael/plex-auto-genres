@@ -22,6 +22,7 @@ signal.signal(signal.SIGINT, signal.default_int_handler)
 PLEX_USERNAME = os.getenv("PLEX_USERNAME")
 PLEX_PASSWORD = os.getenv("PLEX_PASSWORD")
 PLEX_SERVER_NAME = os.getenv("PLEX_SERVER_NAME")
+PLEX_COLLECTION_PREFIX = os.getenv("PLEX_COLLECTION_PREFIX")
 tmdb.api_key = os.getenv("TMDB_API_KEY")
 
 example_text = '''example:
@@ -150,6 +151,8 @@ def generate():
                 failed_media.append(m.title)
                 continue
             for genre in genres:
+                if (len(PLEX_COLLECTION_PREFIX) > 0):
+                    genre = PLEX_COLLECTION_PREFIX + genre
                 m.addCollection(genre.strip())
 
             finished_media.append(m.title)
@@ -187,5 +190,8 @@ def confirm_run():
 if __name__ == '__main__':
     if (args.type[0] == 'standard'):
         print()
-    print("\nYou are about to create ["+bcolors.WARNING+args.type[0]+bcolors.ENDC+"] genre collection tags for the library ["+bcolors.WARNING+args.library[0]+bcolors.ENDC+"] on your server ["+bcolors.WARNING+PLEX_SERVER_NAME+bcolors.ENDC+"].")
+    CONFIRMATION = "\nYou are about to create ["+bcolors.WARNING+args.type[0]+bcolors.ENDC+"] genre collection tags for the library ["+bcolors.WARNING+args.library[0]+bcolors.ENDC+"] on your server ["+bcolors.WARNING+PLEX_SERVER_NAME+bcolors.ENDC+"]."
+    if (len(PLEX_COLLECTION_PREFIX) > 0):
+        CONFIRMATION += "With prefix ["+bcolors.WARNING+PLEX_COLLECTION_PREFIX+bcolors.ENDC+"]."
+    print(CONFIRMATION)
     confirm_run()
