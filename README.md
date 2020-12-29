@@ -56,6 +56,8 @@ python plex-auto-genres.py --library Movies --type standard-movie
 python plex-auto-genres.py --library "TV Shows" --type standard-tv
 ```
 
+![Example Usage](/images/example-usage.gif)
+
 ## Troubleshooting
 1. If you are not seeing any new collections close your plex client and re-open it.
 2. Delete the generated `plex-*-finished.txt`  and `plex-*-failures.txt` files if you want the script to generate collections from the beginning. You may want to do this if you delete your collections and need them re-created.
