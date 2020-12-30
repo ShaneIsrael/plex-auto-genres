@@ -1,4 +1,4 @@
 jikanpy
 plexapi
-dotenv
+python-dotenv
 tmdbv3api
