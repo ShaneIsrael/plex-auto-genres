@@ -99,18 +99,22 @@ def fetch_anime(title):
 
 def fetch_standard(title, type):
     time.sleep(0.5)
-    if (type == 'standard-movie'):
-        db = movie
-    else:
-        db = tv
-    search = db.search(title)
-    if (len(search) == 0):
+    try:
+        if (type == 'standard-movie'):
+            db = movie
+        else:
+            db = tv
+        search = db.search(title)
+        if (len(search) == 0):
+            return []
+        details = db.details(search[0].id)
+        genre_list = []
+        for genre in details.genres:
+            genre_list.extend(genre['name'].split(' & '))
+        return genre_list
+    except Exception as e:
+        print('\n\n{}, when searching for entry: {}, of type {}\nThis entry has been added to the failures.txt once the issue is corrected in your library remove the entry from failures.txt and try again.'.format(str(e), title, type))
         return []
-    details = db.details(search[0].id)
-    genre_list = []
-    for genre in details.genres:
-        genre_list.extend(genre['name'].split(' & '))
-    return genre_list
 
 def generate():
     plex = connect_to_plex()
