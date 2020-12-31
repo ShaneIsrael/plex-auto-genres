@@ -35,6 +35,7 @@ parser.add_argument('--library', action='store', dest='library', nargs=1,
                     help='The exact name of the Plex library to generate genre collections for.')
 parser.add_argument('--type', dest='type', action='store', choices=('anime', 'standard-movie', 'standard-tv'), nargs=1,
                     help='The type of media contained in the library')
+parser.add_argument('--dry', help='Do not modify plex collections (debugging feature)', action='store_true')
 
 
 if len(sys.argv)==1:
@@ -42,6 +43,8 @@ if len(sys.argv)==1:
     sys.exit(1)
 
 args = parser.parse_args()
+
+DRY_RUN = args.dry
 
 class bcolors:
     HEADER = '\033[95m'
@@ -121,12 +124,13 @@ def generate():
     plex = connect_to_plex()
     finished_media = []
     failed_media = []
-    if (os.path.isfile('plex-'+args.type[0]+'-finished.txt')):
-        with open('plex-'+args.type[0]+'-finished.txt') as save_data:
-            finished_media = json.load(save_data)
-    if (os.path.isfile('plex-'+args.type[0]+'-failures.txt')):
-        with open('plex-'+args.type[0]+'-failures.txt') as save_data:
-            failed_media = json.load(save_data)
+    if (not DRY_RUN):
+        if (os.path.isfile('plex-'+args.type[0]+'-finished.txt')):
+            with open('plex-'+args.type[0]+'-finished.txt') as save_data:
+                finished_media = json.load(save_data)
+        if (os.path.isfile('plex-'+args.type[0]+'-failures.txt')):
+            with open('plex-'+args.type[0]+'-failures.txt') as save_data:
+                failed_media = json.load(save_data)
     try:
         medias = plex.library.section(args.library[0]).all()
         total_count = len(medias)
@@ -155,10 +159,11 @@ def generate():
             if (len(genres) == 0):
                 failed_media.append(m.title)
                 continue
-            for genre in genres:
-                if (len(PLEX_COLLECTION_PREFIX) > 0):
-                    genre = PLEX_COLLECTION_PREFIX + genre
-                m.addCollection(genre.strip())
+            if (not DRY_RUN):
+                for genre in genres:
+                    if (len(PLEX_COLLECTION_PREFIX) > 0):
+                        genre = PLEX_COLLECTION_PREFIX + genre
+                    m.addCollection(genre.strip())
 
             finished_media.append(m.title)
             printProgressBar(working_index, total_count, prefix = 'Progress:', suffix = 'Complete', length = 50)
@@ -170,12 +175,13 @@ def generate():
     except Exception as e:
         print(str(e))
 
-    if (len(finished_media) > 0):
-        with open('plex-'+args.type[0]+'-finished.txt', 'w') as filehandle:
-            json.dump(finished_media, filehandle)
-    if (len(failed_media) > 0):
-        with open('plex-'+args.type[0]+'-failures.txt', 'w') as filehandle:
-            json.dump(failed_media, filehandle)
+    if (not DRY_RUN):
+        if (len(finished_media) > 0):
+            with open('plex-'+args.type[0]+'-finished.txt', 'w') as filehandle:
+                json.dump(finished_media, filehandle)
+        if (len(failed_media) > 0):
+            with open('plex-'+args.type[0]+'-failures.txt', 'w') as filehandle:
+                json.dump(failed_media, filehandle)
     
     sys.exit(0)
 
