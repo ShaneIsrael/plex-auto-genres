@@ -36,20 +36,9 @@ PLEX_SERVER_NAME = os.getenv("PLEX_SERVER_NAME")
 PLEX_BASE_URL = os.getenv("PLEX_BASE_URL")
 PLEX_TOKEN = os.getenv("PLEX_TOKEN")
 PLEX_COLLECTION_PREFIX = os.getenv("PLEX_COLLECTION_PREFIX", "")
-tmdb.api_key = os.getenv("TMDB_API_KEY")
+TMDB_API_KEY = os.getenv("TMDB_API_KEY")
+tmdb.api_key = TMDB_API_KEY
 
-if (not PLEX_USERNAME and not PLEX_TOKEN):
-    print(bcolors.FAIL + 'PLEX_USERNAME is missing or not set. Please verify your .env file.' + bcolors.ENDC)
-    sys.exit(1)
-if (not PLEX_PASSWORD and not PLEX_TOKEN):
-    print(bcolors.FAIL + 'PLEX_PASSWORD is missing or not set. Please verify your .env file.' + bcolors.ENDC)
-    sys.exit(1)
-if (not PLEX_SERVER_NAME):
-    print(bcolors.FAIL + 'PLEX_SERVER_NAME is missing or not set. Please verify your .env file.' + bcolors.ENDC)
-    sys.exit(1)
-if (PLEX_TOKEN and not PLEX_BASE_URL):
-    print(bcolors.FAIL + 'Plex Token Auth requires PLEX_BASE_URL to be set. Please verify your .env file.' + bcolors.ENDC)
-    sys.exit(1)
 example_text = '''example:
 
  python plex-auto-genres.py --library "Anime Shows" --type anime
@@ -70,6 +59,25 @@ if len(sys.argv)==1:
 args = parser.parse_args()
 
 DRY_RUN = args.dry
+
+if (not os.path.isfile('.env')):
+    print(bcolors.FAIL + 'No .env file detected. Please locate the .env.example file and copy the contents into a new file named .env placed next to this script.' + bcolors.ENDC)
+    sys.exit(1)
+if (not PLEX_USERNAME and not PLEX_TOKEN):
+    print(bcolors.FAIL + 'PLEX_USERNAME is missing or not set. Please verify your .env file.' + bcolors.ENDC)
+    sys.exit(1)
+if (not PLEX_PASSWORD and not PLEX_TOKEN):
+    print(bcolors.FAIL + 'PLEX_PASSWORD is missing or not set. Please verify your .env file.' + bcolors.ENDC)
+    sys.exit(1)
+if (not PLEX_SERVER_NAME):
+    print(bcolors.FAIL + 'PLEX_SERVER_NAME is missing or not set. Please verify your .env file.' + bcolors.ENDC)
+    sys.exit(1)
+if (PLEX_TOKEN and not PLEX_BASE_URL):
+    print(bcolors.FAIL + 'Plex Token Auth requires PLEX_BASE_URL to be set. Please verify your .env file.' + bcolors.ENDC)
+    sys.exit(1)
+if ((args.type[0] == 'standard-movie' or args.type[0] == 'standard-tv') and not TMDB_API_KEY):
+    print(bcolors.FAIL + 'TMDB_API_KEY must be set for non-anime. Please verify your .env file.' + bcolors.ENDC)
+    sys.exit(1)
 
 def printProgressBar (iteration, total, prefix = '', suffix = '', decimals = 1, length = 100, fill = '█', printEnd = "\r"):
     percent = ("{0:." + str(decimals) + "f}").format(100 * (iteration / float(total)))
@@ -218,8 +226,6 @@ def confirm_run():
         confirm_run()
 
 if __name__ == '__main__':
-    if (args.type[0] == 'standard'):
-        print()
     CONFIRMATION = "\nYou are about to create ["+bcolors.WARNING+args.type[0]+bcolors.ENDC+"] genre collection tags for the library ["+bcolors.WARNING+args.library[0]+bcolors.ENDC+"] on your server ["+bcolors.WARNING+PLEX_SERVER_NAME+bcolors.ENDC+"]."
     if (len(PLEX_COLLECTION_PREFIX) > 0):
         CONFIRMATION += "With prefix ["+bcolors.WARNING+PLEX_COLLECTION_PREFIX+bcolors.ENDC+"]."
