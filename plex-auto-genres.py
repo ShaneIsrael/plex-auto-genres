@@ -8,7 +8,7 @@ import signal
 import datetime
 from tmdbv3api import TMDb, Movie, TV
 from jikanpy import Jikan
-from plexapi.myplex import MyPlexAccount
+from plexapi.myplex import MyPlexAccount, PlexServer
 from dotenv import load_dotenv
 
 jikan = Jikan()
@@ -69,7 +69,7 @@ if (not PLEX_USERNAME and not PLEX_TOKEN):
 if (not PLEX_PASSWORD and not PLEX_TOKEN):
     print(bcolors.FAIL + 'PLEX_PASSWORD is missing or not set. Please verify your .env file.' + bcolors.ENDC)
     sys.exit(1)
-if (not PLEX_SERVER_NAME):
+if ((not PLEX_SERVER_NAME and not PLEX_TOKEN):
     print(bcolors.FAIL + 'PLEX_SERVER_NAME is missing or not set. Please verify your .env file.' + bcolors.ENDC)
     sys.exit(1)
 if (PLEX_TOKEN and not PLEX_BASE_URL):
