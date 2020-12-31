@@ -76,9 +76,9 @@ def connect_to_plex():
 
 def get_sleep_time(type):
     if (type == 'standard-movie'):
-        return 0.5 # tmdb doesn't have a rate limit, but we sleep for 0.5 anyways
+        return 1 # tmdb doesn't have a rate limit, but we sleep for 0.5 anyways
     elif (type == 'standard-tv'):
-        return 0.5 # tmdb
+        return 1 # tmdb
     else:
         return 8 #Jikan fetch requires 2 request with a 4 second sleep on each request
 
@@ -98,15 +98,16 @@ def fetch_anime(title):
     return genres_list
 
 def fetch_standard(title, type):
-    time.sleep(0.5)
     try:
         if (type == 'standard-movie'):
             db = movie
         else:
             db = tv
+        time.sleep(0.5)
         search = db.search(title)
         if (len(search) == 0):
             return []
+        time.sleep(0.5)
         details = db.details(search[0].id)
         genre_list = []
         for genre in details.genres:
