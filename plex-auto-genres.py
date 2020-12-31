@@ -17,14 +17,39 @@ tmdb = TMDb()
 movie = Movie()
 tv = TV()
 
+class bcolors:
+    HEADER = '\033[95m'
+    OKBLUE = '\033[94m'
+    OKCYAN = '\033[96m'
+    OKGREEN = '\033[92m'
+    WARNING = '\033[93m'
+    FAIL = '\033[91m'
+    ENDC = '\033[0m'
+    BOLD = '\033[1m'
+    UNDERLINE = '\033[4m'
+
 signal.signal(signal.SIGINT, signal.default_int_handler)
 
 PLEX_USERNAME = os.getenv("PLEX_USERNAME")
 PLEX_PASSWORD = os.getenv("PLEX_PASSWORD")
 PLEX_SERVER_NAME = os.getenv("PLEX_SERVER_NAME")
-PLEX_COLLECTION_PREFIX = os.getenv("PLEX_COLLECTION_PREFIX")
+PLEX_BASE_URL = os.getenv("PLEX_BASE_URL")
+PLEX_TOKEN = os.getenv("PLEX_TOKEN")
+PLEX_COLLECTION_PREFIX = os.getenv("PLEX_COLLECTION_PREFIX", "")
 tmdb.api_key = os.getenv("TMDB_API_KEY")
 
+if (not PLEX_USERNAME and not PLEX_TOKEN):
+    print(bcolors.FAIL + 'PLEX_USERNAME is missing or not set. Please verify your .env file.' + bcolors.ENDC)
+    sys.exit(1)
+if (not PLEX_PASSWORD and not PLEX_TOKEN):
+    print(bcolors.FAIL + 'PLEX_PASSWORD is missing or not set. Please verify your .env file.' + bcolors.ENDC)
+    sys.exit(1)
+if (not PLEX_SERVER_NAME):
+    print(bcolors.FAIL + 'PLEX_SERVER_NAME is missing or not set. Please verify your .env file.' + bcolors.ENDC)
+    sys.exit(1)
+if (PLEX_TOKEN and not PLEX_BASE_URL):
+    print(bcolors.FAIL + 'Plex Token Auth requires PLEX_BASE_URL to be set. Please verify your .env file.' + bcolors.ENDC)
+    sys.exit(1)
 example_text = '''example:
 
  python plex-auto-genres.py --library "Anime Shows" --type anime
@@ -46,17 +71,6 @@ args = parser.parse_args()
 
 DRY_RUN = args.dry
 
-class bcolors:
-    HEADER = '\033[95m'
-    OKBLUE = '\033[94m'
-    OKCYAN = '\033[96m'
-    OKGREEN = '\033[92m'
-    WARNING = '\033[93m'
-    FAIL = '\033[91m'
-    ENDC = '\033[0m'
-    BOLD = '\033[1m'
-    UNDERLINE = '\033[4m'
-
 def printProgressBar (iteration, total, prefix = '', suffix = '', decimals = 1, length = 100, fill = '█', printEnd = "\r"):
     percent = ("{0:." + str(decimals) + "f}").format(100 * (iteration / float(total)))
     filledLength = int(length * iteration // total)
@@ -69,8 +83,13 @@ def printProgressBar (iteration, total, prefix = '', suffix = '', decimals = 1, 
 def connect_to_plex():
     print('\nConnecting to Plex...')
     try:
-        account = MyPlexAccount(PLEX_USERNAME, PLEX_PASSWORD)
-        plex = account.resource(PLEX_SERVER_NAME).connect()
+        if PLEX_USERNAME is not None and PLEX_PASSWORD is not None and PLEX_SERVER_NAME is not None:
+            account = MyPlexAccount(PLEX_USERNAME, PLEX_PASSWORD)
+            plex = account.resource(PLEX_SERVER_NAME).connect()
+        elif PLEX_BASE_URL is not None and PLEX_TOKEN is not None:
+            plex = PlexServer(PLEX_BASE_URL, PLEX_TOKEN)
+        else:
+            raise Exception("No valid credentials found. See the README for more details.")
     except Exception as e:
         print(str(e))
         sys.exit(0)

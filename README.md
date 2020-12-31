@@ -36,6 +36,15 @@ If your anime shows and standard tv shows are in the same library, you can still
 2. Install the python dependencies listed in `requirements.txt`, if you have pip you can simply do `pip install -r requirements.txt`
 3. Rename the `.env.example` file to `.env`
 4. Edit the `.env` file and set your plex username, password, and server name. If you are generating collections for standard media (non anime) you will need to also obtain an [TMDB Api Key](https://developers.themoviedb.org/3/getting-started/introduction) (for movies and tv shows) 
+    |Variable|Authentication method|Value|
+    |---|---|---|
+    |PLEX_USERNAME|Username and password|Your Plex Username|
+    |PLEX_PASSWORD|Username and password|Your Plex Password|
+    |PLEX_SERVER_NAME|Username and password|Your Plex Server Name|
+    |PLEX_BASE_URL|Token|Your Plex Server base URL|
+    |PLEX_TOKEN|Token|Your Plex Token|
+    |PLEX_COLLECTION_PREFIX||(Optional) Prefix for the created Plex collections. For example, with a value of "\*", a collection named "Adventure", the name would instead be "*Adventure".<br><br>Default value : ""|
+    |TMDB_API_KEY||Your TMDB api key (not required for anime library tagging)|
 
 You are now ready to run the script
 ```
