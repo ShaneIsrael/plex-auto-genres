@@ -45,6 +45,7 @@ If your anime shows and standard tv shows are in the same library, you can still
     |PLEX_TOKEN|Token|Your Plex Token|
     |PLEX_COLLECTION_PREFIX||(Optional) Prefix for the created Plex collections. For example, with a value of "\*", a collection named "Adventure", the name would instead be "*Adventure".<br><br>Default value : ""|
     |TMDB_API_KEY||Your TMDB api key (not required for anime library tagging)|
+5. Optional, If you want to update the poster art of your collections. See `sample_posters/readme.txt`
 
 You are now ready to run the script
 ```
@@ -57,6 +58,8 @@ optional arguments:
   --library LIBRARY     The exact name of the Plex library to generate genre collections for.
   --type {anime,standard-movie,standard-tv}
                         The type of media contained in the library
+  --set-posters         uploads posters located in posters/<type> of matching collections. Supports (.PNG)
+  --dry                 Do not modify plex collections (debugging feature)
 
 example: 
 python plex-auto-genres.py --library "Anime Movies" --type anime
