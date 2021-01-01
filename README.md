@@ -3,7 +3,7 @@
 Plex Auto Genres is a simple script that will add genre collection tags to your media making it much easier to search for genre specific content
 
 1. [Requirements](#requirements)
-2. [Optimal Setup](#optimal_setup)
+2. [Optimal Setup](#optimal)
 3. [Getting Started](#getting_started)
 4. [Troubleshooting](#troubleshooting)
 5. [Docker Usage](#docker_usage)
@@ -18,7 +18,7 @@ Plex Auto Genres is a simple script that will add genre collection tags to your 
 1. Python 3
 2. [TMDB Api Key](https://developers.themoviedb.org/3/getting-started/introduction) (Only required for non-anime libraries)
 
-## Optimal Setup
+## <a id="optimal"></a>Optimal Setup
 
 1. Anime / Anime Movies are in their own library on your plex server. **_(Anime and Anime Movies can share the same library)_**
 2. Standard TV Shows are in their own library on your plex server.
@@ -32,7 +32,7 @@ If your anime shows and standard tv shows are in the same library, you can still
 ###### Here is an example of my plex library setup
 ![Plex Library Example](/images/example-library-setup.png)
 
-## Getting Started <a name="getting_started"></a>
+## <a id="getting_started"></a>Getting Started 
 1. Read the **Optimal Setup** section above
 2. Install the python dependencies listed in `requirements.txt`, if you have pip you can simply do `pip install -r requirements.txt`
 3. Rename the `.env.example` file to `.env`
@@ -76,5 +76,5 @@ python plex-auto-genres.py --library "TV Shows" --type standard-tv
 2. Delete the generated `plex-*-finished.txt`  and `plex-*-failures.txt` files if you want the script to generate collections from the beginning. You may want to do this if you delete your collections and need them re-created.
 3. Having the release year in the title of a tv show or movie can cause the lookup to fail in some instances. For example `Battlestar Galactica (2003)` will fail, but `Battlestar Galactica` will not.
 
-## Docker Usage
+## <a id="docker_usage"></a>Docker Usage
 If you would like to run this via a docker container somebody has made that possible. [Follow their instructions here](https://github.com/fdarveau/plex-auto-genres-docker)
