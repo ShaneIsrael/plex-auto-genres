@@ -1,4 +1,4 @@
-These are sample posters I put together using a template from reddit user 
+These are sample posters I put together using a template from reddit user alexnyc1998
 
 If you would like to use these sample posters simply move them to the posters/standard-movie directory and run the
 script with the --set-posters flag.
