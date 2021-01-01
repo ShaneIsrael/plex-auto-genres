@@ -67,6 +67,7 @@ python plex-auto-genres.py --library "Anime Movies" --type anime
 python plex-auto-genres.py --library "Anime Shows" --type anime
 python plex-auto-genres.py --library Movies --type standard-movie
 python plex-auto-genres.py --library "TV Shows" --type standard-tv
+python plex-auto-genres.py --library Movies --type standard-movie --set-posters
 ```
 
 ![Example Usage](/images/example-usage.gif)
