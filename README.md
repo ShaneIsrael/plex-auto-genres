@@ -3,9 +3,10 @@
 Plex Auto Genres is a simple script that will add genre collection tags to your media making it much easier to search for genre specific content
 
 1. [Requirements](#requirements)
-2. [Optimal Setup](#Setup)
+2. [Optimal Setup](#optimal_setup)
 3. [Getting Started](#getting_started)
 4. [Troubleshooting](#troubleshooting)
+5. [Docker Usage](#docker_usage)
 
 ###### Movies example
 ![Movie Collections](/images/movies.png)
