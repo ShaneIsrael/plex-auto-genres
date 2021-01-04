@@ -8,7 +8,7 @@ Plex Auto Genres is a simple script that will add genre collection tags to your 
 4. [Troubleshooting](#troubleshooting)
 5. [Docker Usage](#docker_usage)
 
-###### Movies example (with cover art set using --set-posters flag)
+###### Movies example (with cover art set using --set-posters flag.)
 ![Movie Collections](/images/movies.png)
 
 ###### Anime example
@@ -50,7 +50,7 @@ If your anime shows and standard tv shows are in the same library, you can still
 
 You are now ready to run the script
 ```
-usage: plex-auto-genres.py [-h] [--library LIBRARY] [--type {anime,standard}]
+usage: main.py [-h] [--library LIBRARY] [--type {anime,standard}]
 
 Adds genre tags (collections) to your Plex media.
 
@@ -61,13 +61,15 @@ optional arguments:
                         The type of media contained in the library
   --set-posters         uploads posters located in posters/<type> of matching collections. Supports (.PNG)
   --dry                 Do not modify plex collections (debugging feature)
+  -f, --force           Force proccess on all media (independently of proggress recorded in logs/).
+  -y, --yes             Do not prompt.
 
 example: 
-python plex-auto-genres.py --library "Anime Movies" --type anime
-python plex-auto-genres.py --library "Anime Shows" --type anime
-python plex-auto-genres.py --library Movies --type standard-movie
-python plex-auto-genres.py --library "TV Shows" --type standard-tv
-python plex-auto-genres.py --library Movies --type standard-movie --set-posters
+python main.py --library "Anime Movies" --type anime
+python main.py --library "Anime Shows" --type anime
+python main.py --library Movies --type standard-movie
+python main.py --library "TV Shows" --type standard-tv
+python main.py --library Movies --type standard-movie --set-posters
 ```
 
 ![Example Usage](/images/example-usage.gif)
