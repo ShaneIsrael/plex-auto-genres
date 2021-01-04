@@ -22,7 +22,7 @@ from src.util import getSleepTime, confirm
 
 validateDotEnv(TYPE)
 
-def connectToPlex():
+def connectToPlex():    
     print('\nConnecting to Plex...')
     try:
         if PLEX_USERNAME is not None and PLEX_PASSWORD is not None and PLEX_SERVER_NAME is not None:

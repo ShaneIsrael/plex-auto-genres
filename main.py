@@ -1,3 +1,4 @@
+#pylint: disable=no-member
 from src.args import SET_POSTERS, LIBRARY, TYPE, NO_PROMPT
 from src.colors import bcolors
 from src.setup import PLEX_COLLECTION_PREFIX, PLEX_SERVER_NAME, PLEX_BASE_URL

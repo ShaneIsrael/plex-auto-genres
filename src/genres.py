@@ -1,3 +1,4 @@
+#pylint: disable=no-member
 import re
 from time import sleep
 
@@ -32,6 +33,7 @@ def getStandardGenres(title, type):
         sleep(0.5)
 
         details = db.details(query[0].id)
+        
         genres = [ y[0] for y in [x['name'].split(' & ') for x in details.genres] ]
         
         return genres

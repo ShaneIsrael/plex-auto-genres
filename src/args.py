@@ -26,12 +26,12 @@ if not args.type or not args.library:
     print(f'\n{bcolors.FAIL}The parameters {bcolors.BOLD}--library{bcolors.ENDC}{bcolors.FAIL} and {bcolors.BOLD}--type{bcolors.ENDC}{bcolors.FAIL} are required.\n{bcolors.ENDC}')
     sys.exit(1)
 
-LIBRARY = args.library[0]
-TYPE = args.type[0]
-DRY_RUN = args.dry
+LIBRARY     = args.library[0]
+TYPE        = args.type[0]
+DRY_RUN     = args.dry
 SET_POSTERS = args.set_posters
-FORCE = args.force
-NO_PROMPT = args.yes
+FORCE       = args.force
+NO_PROMPT   = args.yes
 
 if FORCE and not SET_POSTERS:
     if os.path.isfile(f'logs/plex-{TYPE}-successful.txt'): os.remove(f'logs/plex-{TYPE}-successful.txt')
