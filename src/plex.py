@@ -63,6 +63,7 @@ def generate(plex):
         print(f'Found {totalCount} media entries under {LIBRARY} ({finishedCount}/{totalCount} completed).')
         print(f'Estimated time to completion: {math.ceil(eta)} minutes...\n')
 
+        printProgressBar(0, totalCount, prefix = 'Progress:', suffix = 'Complete', length = 50)
         # i = current media's position
         for i, media in enumerate(library, 1):
             mediaIdentifier = f'{media.title} ({media.year})'
