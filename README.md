@@ -15,8 +15,9 @@ Plex Auto Genres is a simple script that will add genre collection tags to your 
 ![Anime Collections](/images/animes.png)
 
 ## Requirements
-1. Python 3
+1. Python 3 - Instructions > [Windows / Mac / Linux](https://installpython3.com/)
 2. [TMDB Api Key](https://developers.themoviedb.org/3/getting-started/introduction) (Only required for non-anime libraries)
+
 
 ## <a id="optimal"></a>Optimal Setup
 
