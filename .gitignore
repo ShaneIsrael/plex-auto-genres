@@ -1,3 +1,6 @@
 .env
-plex-*-finished.txt
-plex-*-failures.txt
+.vscode/
+__pycache__/*
+__pycache__/
+posters/*/*
+logs/*
