@@ -1,7 +1,6 @@
-import json
 import math
 import os
-from re import sub, search
+from re import sub
 
 from plexapi.myplex import MyPlexAccount, PlexServer
 
@@ -18,11 +17,12 @@ from src.setup import (
     PLEX_USERNAME,
     validateDotEnv
 )
-from src.util import getSleepTime, confirm
+from src.util import getSleepTime, LoadProgress, SaveProgress
 
 validateDotEnv(TYPE)
 
-def connectToPlex():    
+
+def connectToPlex():
     print('\nConnecting to Plex...')
     try:
         if PLEX_USERNAME is not None and PLEX_PASSWORD is not None and PLEX_SERVER_NAME is not None:
@@ -31,22 +31,20 @@ def connectToPlex():
         elif PLEX_BASE_URL is not None and PLEX_TOKEN is not None:
             plex = PlexServer(PLEX_BASE_URL, PLEX_TOKEN)
         else:
-            raise Exception("No valid credentials found. See the README for more details.")
+            raise Exception(
+                "No valid credentials found. See the README for more details.")
     except Exception as e:
-        raise Exception(str(e))
+        raise Exception from e
 
     return plex
 
-def generate(plex):
-    successfulMedia = []
-    failedMedia = []
 
-    if not DRY_RUN:
-        if not os.path.isdir('./logs'): os.mkdir('./logs')
-        if os.path.isfile(f'logs/plex-{TYPE}-successful.txt'):
-            with open(f'logs/plex-{TYPE}-successful.txt', 'r') as f: successfulMedia = json.load(f)
-        if os.path.isfile(f'logs/plex-{TYPE}-failures.txt'):
-            with open(f'logs/plex-{TYPE}-failures.txt', 'r') as f: failedMedia = json.load(f)
+
+def generate(plex):
+
+    dataLoad = LoadProgress()
+    successfulMedia = dataLoad.successfulMedia
+    failedMedia = dataLoad.failedMedia
 
     try:
         # plex library
@@ -54,7 +52,8 @@ def generate(plex):
 
         # media counters
         totalCount = len(library)
-        unfinishedCount = len(list(filter(lambda media: f'{media.title} ({media.year})' not in successfulMedia and f'{media.title} ({media.year})' not in failedMedia, library)))
+        unfinishedCount = len(list(filter(
+            lambda media: f'{media.title} ({media.year})' not in successfulMedia and f'{media.title} ({media.year})' not in failedMedia, library)))
         finishedCount = totalCount - unfinishedCount
 
         # estimated time "of arrival"
@@ -63,7 +62,8 @@ def generate(plex):
         print(f'Found {totalCount} media entries under {LIBRARY} ({finishedCount}/{totalCount} completed).')
         print(f'Estimated time to completion: {math.ceil(eta)} minutes...\n')
 
-        printProgressBar(0, totalCount, prefix = 'Progress:', suffix = 'Complete', length = 50)
+        printProgressBar(0, totalCount, prefix='Progress:',
+                         suffix='Complete', length=50)
         # i = current media's position
         for i, media in enumerate(library, 1):
             mediaIdentifier = f'{media.title} ({media.year})'
@@ -71,7 +71,8 @@ def generate(plex):
             if mediaIdentifier not in successfulMedia and mediaIdentifier not in failedMedia:
                 genres = getGenres(media, TYPE)
 
-                if not genres: failedMedia.append(mediaIdentifier)
+                if not genres:
+                    failedMedia.append(mediaIdentifier)
 
                 else:
                     if not DRY_RUN:
@@ -81,25 +82,25 @@ def generate(plex):
 
                     successfulMedia.append(mediaIdentifier)
 
-            printProgressBar(i, totalCount, prefix = 'Progress:', suffix = 'Complete', length = 50)
+            printProgressBar(i, totalCount, prefix='Progress:',
+                             suffix='Complete', length=50)
 
-        if failedMedia: print(bcolors.FAIL + f'\nFailed to get genre information for {len(failedMedia)} entries. ' + bcolors.ENDC + f'See logs/plex-{TYPE}-failures.txt.')
-        else: print(bcolors.OKGREEN + '\nSuccessfully got genre information for all entries. ' + bcolors.ENDC + f'See logs/plex-{TYPE}-successful.txt.')
+        if failedMedia:
+            print(bcolors.FAIL + f'\nFailed to get genre information for {len(failedMedia)} entries. ' +
+                bcolors.ENDC + f'See logs/plex-{TYPE}-failures.txt.')
+        else:
+            print(bcolors.OKGREEN + '\nSuccessfully got genre information for all entries. ' +
+                bcolors.ENDC + f'See logs/plex-{TYPE}-successful.txt.')
 
     except KeyboardInterrupt:
         print('\n\nOperation interupted, progress has been saved.')
 
-    if not DRY_RUN:
-        if successfulMedia:
-            with open(f'logs/plex-{TYPE}-successful.txt', 'w') as f: json.dump(successfulMedia, f)
-        if failedMedia:
-            with open(f'logs/plex-{TYPE}-failures.txt', 'w') as f: json.dump(failedMedia, f)
-    
-    return
+    SaveProgress(successfulMedia=successfulMedia, failedMedia=failedMedia)
 
 
 def uploadCollectionArt(plex):
-    postersDir = os.getcwd() + f'/posters/{TYPE}' # complete path to the posters directory
+    # complete path to the posters directory
+    postersDir = os.getcwd() + f'/posters/{TYPE}'
 
     # if there is no posters/ directory
     if not os.path.isdir(postersDir):
@@ -110,7 +111,7 @@ def uploadCollectionArt(plex):
 
     # if there are no collections (same as len(collections) == 0)
     if not collections:
-        print(bcolors.FAIL + f'Could not find any Plex collections.' + bcolors.ENDC)
+        print(f'{bcolors.FAIL}Could not find any Plex collections.{bcolors.ENDC}')
         return
 
     print('\nUploading collection artwork...')
@@ -120,17 +121,23 @@ def uploadCollectionArt(plex):
         title = sub(f'^{PLEX_COLLECTION_PREFIX}', '', c.title)
 
         # path to the image
-        posterPath = f'{postersDir}/' + title.lower().replace(' ', '-') + '.png'
+        posterPath = f'{postersDir}/' + \
+            title.lower().replace(' ', '-') + '.png'
 
         # If the poster exists, upload it
         if os.path.isfile(posterPath):
-            print(f'Uploading {title}...', end = ' ')
-            
-            try: c.uploadPoster(filepath = posterPath)
-            except Exception as e: print(f'{bcolors.FAIL}failed!{bcolors.ENDC} {bcolors.WARNING}See error:{bcolors.ENDC}{e}')
-            else: print(f'{bcolors.OKGREEN}done!{bcolors.ENDC}')
+            print(f'Uploading {title}...', end=' ')
+
+            try:
+                c.uploadPoster(filepath=posterPath)
+            except Exception as e:
+                print(f'{bcolors.FAIL}failed!{bcolors.ENDC} {bcolors.WARNING}See error:{bcolors.ENDC}{e}')
+            else:
+                print(f'{bcolors.OKGREEN}done!{bcolors.ENDC}')
 
         # If it doesn't, print 404
-        else: print (f'No poster found for collection {bcolors.WARNING}{title}{bcolors.ENDC}, expected {bcolors.WARNING}' + sub(f'^{os.getcwd()}','',posterPath) + f'{bcolors.ENDC}.')
+        else:
+            print(f'No poster found for collection {bcolors.WARNING}{title}{bcolors.ENDC}, expected {bcolors.WARNING}'
+                + sub(f'^{os.getcwd()}', '', posterPath) + f'{bcolors.ENDC}.')
 
     return

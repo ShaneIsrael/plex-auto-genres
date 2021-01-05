@@ -26,9 +26,10 @@ signal.signal(signal.SIGINT, signal.default_int_handler)
 
 tmdb.api_key = TMDB_API_KEY
 
-def validateDotEnv(TYPE):
+def validateDotEnv(mediaType):
     if not os.path.isfile('.env'):
-        print(bcolors.FAIL + 'No .env file detected. Please locate the .env.example file and copy the contents into a new file named .env placed next to this script.' + bcolors.ENDC)
+        print(bcolors.FAIL + 'No .env file detected. Please locate the .env.example file and copy' +
+            ' the contents into a new file named .env placed next to this script.' + bcolors.ENDC)
         sys.exit(1)
 
     if not PLEX_USERNAME and not PLEX_TOKEN:
@@ -47,6 +48,6 @@ def validateDotEnv(TYPE):
         print(bcolors.FAIL + 'Plex Token Auth requires PLEX_BASE_URL to be set. Please verify your .env file.' + bcolors.ENDC)
         sys.exit(1)
 
-    if search('^\S+show$|^\S+movie$', TYPE) and not TMDB_API_KEY:
+    if search('^\S+show$|^\S+movie$', mediaType) and not TMDB_API_KEY:
         print(bcolors.FAIL + 'TMDB_API_KEY must be set for non-anime. Please verify your .env file.' + bcolors.ENDC)
         sys.exit(1)
