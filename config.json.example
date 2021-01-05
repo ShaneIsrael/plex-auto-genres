@@ -1,0 +1,14 @@
+{
+    "run": [
+        {
+           "library": "Movies",
+           "type": "standard-movie",
+           "setPosters": true
+        },
+        {
+            "library": "Anime Shows",
+            "type": "anime",
+            "setPosters": false
+        }
+    ]
+}
