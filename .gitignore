@@ -5,3 +5,4 @@ __pycache__/
 posters/*/*
 logs/*
 config/config.json
+docker-compose.yml
