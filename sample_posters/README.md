@@ -8,7 +8,7 @@ If you would like to create your own posters matching the sample posters style y
 Names must match your collection names in plex without the PLEX_COLLECTION_PREFIX. Any spaces in the names must be replaced with dashes (-).
 
 Example: 
-if you have PLEX_COLLECTION_PREFIX="*"
+if you have `PLEX_COLLECTION_PREFIX="*"`
 Your "Action" collection in plex would be named "*Action"
 So you would title your poster art "action.png" without the "*".
 
