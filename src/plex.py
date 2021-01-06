@@ -65,6 +65,7 @@ def generate(plex):
         printProgressBar(0, totalCount, prefix='Progress:',
                          suffix='Complete', length=50)
         # i = current media's position
+        updateCount = 0
         for i, media in enumerate(library, 1):
             mediaIdentifier = f'{media.title} ({media.year})'
 
@@ -76,12 +77,13 @@ def generate(plex):
 
                 else:
                     if not DRY_RUN:
+                        updateCount += 1
                         for genre in genres:
                             genre = PLEX_COLLECTION_PREFIX + genre
                             media.addCollection(genre)
 
                     successfulMedia.append(mediaIdentifier)
-
+            
             printProgressBar(i, totalCount, prefix='Progress:',
                              suffix='Complete', length=50)
 
@@ -96,7 +98,7 @@ def generate(plex):
         print('\n\nOperation interupted, progress has been saved.')
 
     SaveProgress(successfulMedia=successfulMedia, failedMedia=failedMedia)
-
+    return updateCount
 
 def uploadCollectionArt(plex):
     # complete path to the posters directory

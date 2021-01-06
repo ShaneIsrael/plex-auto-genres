@@ -1,4 +1,5 @@
 {
+    "logfileRoot": "path/for/automate/logs/directory",
     "run": [
         {
            "library": "Movies",
@@ -9,6 +10,11 @@
             "library": "Anime Shows",
             "type": "anime",
             "setPosters": false
+        },
+        {
+            "library": "some other library",
+            "type": "some other type",
+            "setPosters": "upload cover art located in /posters?"
         }
     ]
 }

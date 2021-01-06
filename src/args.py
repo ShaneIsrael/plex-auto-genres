@@ -13,6 +13,7 @@ parser.add_argument('--type', dest='type', action='store', choices=('anime', 'st
                     help='The type of media contained in the library')
 parser.add_argument('--set-posters', help='uploads posters located in posters/<type> of matching collections. Supports (.PNG)', action='store_true')
 parser.add_argument('--dry', help='Do not modify plex collections (debugging feature)', action='store_true')
+parser.add_argument('--no-progress', help='Do not display the live updating progress bar', action='store_true')
 parser.add_argument('-f', '--force', help='Force proccess on all media (independently of proggress recorded in logs/).', action='store_true')
 parser.add_argument('-y', '--yes', help='Do not prompt.', action='store_true')
 
@@ -33,6 +34,7 @@ DRY_RUN     = args.dry
 SET_POSTERS = args.set_posters
 FORCE       = args.force
 NO_PROMPT   = args.yes
+NO_PROGRESS = args.no_progress
 
 if FORCE and not SET_POSTERS:
     if os.path.isfile(f'logs/plex-{TYPE}-successful.txt'):

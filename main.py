@@ -19,5 +19,7 @@ if __name__ == '__main__':
 
         print(CONFIRMATION)
         if NO_PROMPT or confirm():
-            generate(plex)
+            UPDATE_COUNT = generate(plex)
+            print(f'Updated {UPDATE_COUNT} entrie(s) since last run.')
+
     print()
