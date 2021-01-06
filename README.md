@@ -82,13 +82,13 @@ I have conveniently included a script to help with automating the process of run
 
 1. Copy `.env.example` to `.env` and update the values
 2. Copy `config.json.example` to `config.json` and update the values
-3. Update `logfileRoot` with valid directory path where the automate script can write its log files (This is different from the success/failures.txt files)
+3. Set `logfileRoot` to a valid directory path where the automate script can write its log files (This is different from the success/failures.txt files)
 4. Each entry in the `run` list will be executed when you run this script
 5. Have some cron/scheduling process execute `python3 automate.py`, I suggest running it manually first to test that its working.
 
-**Note:** *The first run of this script may take a long time minutes to hours depending on your library sizes.*
+**Note:** *The first run of this script may take a long time (minutes to hours) depending on your library sizes.*
 
-**Note:** *Don't be alarmed if you do not see any text output. The terminal output you normally see when running `main.py` is redirected to the log file after each executed `run` in your `config`.*
+**Note:** *Don't be alarmed if you do not see any text output. The terminal output you normally see when running `main.py` is redirected to the log file **after** each executed `run` in your `config`.*
 
 
 Check the log file in the `logfileRoot` you provided once its done running for issues.
