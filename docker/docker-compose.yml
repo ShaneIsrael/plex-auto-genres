@@ -1,0 +1,16 @@
+services:
+  plex-auto-genres:
+    container_name: plex-auto-genres
+    image: shaneisrael/plex-auto-genres:latest
+    volumes:
+      - path/to/config:/config    # /Users/some_user/git/plex-auto-genres/config:/config
+      - path/to/posters:/posters  # /Users/some_user/git/plex-auto-genres/posters:/posters
+      - path/to/logs:/logs        # /Users/some_user/git/plex-auto-genres/logs:/logs
+    environment:
+      - PLEX_USERNAME=xxx       # Do not surround in quotes
+      - PLEX_PASSWORD=xxx       # Do not surround in quotes
+      - PLEX_SERVER_NAME=xxx    # Do not surround in quotes
+      - TMDB_API_KEY=xxx        # Do not surround in quotes
+      - PLEX_COLLECTION_PREFIX= # Do not surround in quotes
+      - PLEX_TOKEN=             # Do not surround in quotes
+      - PLEX_BASE_URL="http://1.2.3.4:32400"

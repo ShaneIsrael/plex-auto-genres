@@ -27,7 +27,7 @@ signal.signal(signal.SIGINT, signal.default_int_handler)
 tmdb.api_key = TMDB_API_KEY
 
 def validateDotEnv(mediaType):
-    if not os.path.isfile('.env'):
+    if not os.path.isfile('.env') and not (PLEX_USERNAME or PLEX_PASSWORD or PLEX_SERVER_NAME):
         print(bcolors.FAIL + 'No .env file detected. Please locate the .env.example file and copy' +
             ' the contents into a new file named .env placed next to this script.' + bcolors.ENDC)
         sys.exit(1)

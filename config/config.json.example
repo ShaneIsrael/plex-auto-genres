@@ -1,16 +1,20 @@
 {
-    "logfileRoot": "path/for/automate/logs/directory",
     "run": [
         {
            "library": "Movies",
            "type": "standard-movie",
-           "setPosters": true
+           "setPosters": false
         },
         {
             "library": "Anime Shows",
             "type": "anime",
             "setPosters": false
         },
+        {
+            "library": "TV Shows",
+            "type": "standard-tv",
+            "setPosters": false
+        }
         {
             "library": "some other library",
             "type": "some other type",

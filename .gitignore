@@ -4,4 +4,4 @@ __pycache__/*
 __pycache__/
 posters/*/*
 logs/*
-config.json
+config/config.json

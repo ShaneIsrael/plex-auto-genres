@@ -1,0 +1,20 @@
+FROM python:3-alpine
+
+RUN apk add --no-cache \
+    gcc \
+    musl-dev
+
+COPY plex-auto-genres.py /
+COPY automate.py /
+COPY src/ /src/
+COPY requirements.txt /
+COPY docker/entrypoint.sh /
+
+RUN pip3 install -r requirements.txt
+
+# give execution permission to scripts
+RUN chmod +x /entrypoint.sh
+
+RUN echo "0 1 * * * /automate.py" > /etc/crontabs/root
+
+ENTRYPOINT ["/entrypoint.sh"]

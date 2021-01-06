@@ -51,7 +51,7 @@ If your anime shows and standard tv shows are in the same library, you can still
 
 You are now ready to run the script
 ```
-usage: main.py [-h] [--library LIBRARY] [--type {anime,standard}]
+usage: plex-auto-genres.py [-h] [--library LIBRARY] [--type {anime,standard}]
 
 Adds genre tags (collections) to your Plex media.
 
@@ -66,11 +66,11 @@ optional arguments:
   -y, --yes             Do not prompt.
 
 example: 
-python main.py --library "Anime Movies" --type anime
-python main.py --library "Anime Shows" --type anime
-python main.py --library Movies --type standard-movie
-python main.py --library "TV Shows" --type standard-tv
-python main.py --library Movies --type standard-movie --set-posters
+python plex-auto-genres.py --library "Anime Movies" --type anime
+python plex-auto-genres.py --library "Anime Shows" --type anime
+python plex-auto-genres.py --library Movies --type standard-movie
+python plex-auto-genres.py --library "TV Shows" --type standard-tv
+python plex-auto-genres.py --library Movies --type standard-movie --set-posters
 ```
 
 ![Example Usage](/images/example-usage.gif)
