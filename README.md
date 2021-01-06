@@ -5,8 +5,9 @@ Plex Auto Genres is a simple script that will add genre collection tags to your 
 1. [Requirements](#requirements)
 2. [Optimal Setup](#optimal)
 3. [Getting Started](#getting_started)
-4. [Troubleshooting](#troubleshooting)
-5. [Docker Usage](#docker_usage)
+4. [Automating](#automating)
+5. [Troubleshooting](#troubleshooting)
+6. [Docker Usage](#docker_usage)
 
 ###### Movies example (with cover art set using --set-posters flag.)
 ![Movie Collections](/images/movies.png)
@@ -62,6 +63,7 @@ optional arguments:
                         The type of media contained in the library
   --set-posters         uploads posters located in posters/<type> of matching collections. Supports (.PNG)
   --dry                 Do not modify plex collections (debugging feature)
+  --no-progress         Do not display the live updating progress bar
   -f, --force           Force proccess on all media (independently of proggress recorded in logs/).
   -y, --yes             Do not prompt.
 
@@ -74,6 +76,23 @@ python plex-auto-genres.py --library Movies --type standard-movie --set-posters
 ```
 
 ![Example Usage](/images/example-usage.gif)
+
+## <a id="automating"></a>Automating
+I have conveniently included a script to help with automating the process of running plex-auto-genres when combined with any number of cron scheduling tools such as `contab`, `task scheduler`, etc. 
+
+1. Copy `.env.example` to `.env` and update the values
+2. Copy `config.json.example` to `config.json` and update the values
+3. Set `logfileRoot` to a valid directory path where the automate script can write its log files (This is different from the success/failures.txt files)
+4. Each entry in the `run` list will be executed when you run this script
+5. Have some cron/scheduling process execute `python3 automate.py`, I suggest running it manually first to test that its working.
+
+**Note:** *The first run of this script may take a long time (minutes to hours) depending on your library sizes.*
+
+**Note:** *Don't be alarmed if you do not see any text output. The terminal output you normally see when running `main.py` is redirected to the log file **after** each executed `run` in your `config`.*
+
+
+Check the log file in the `logfileRoot` you provided once its done running for issues.
+
 
 ## Troubleshooting
 1. If you are not seeing any new collections close your plex client and re-open it.
