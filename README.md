@@ -1,4 +1,4 @@
-![](https://img.shields.io/docker/build/shaneisrael/plex-auto-genres)
+![](https://img.shields.io/docker/cloud/build/shaneisrael/plex-auto-genres)
 
 # Plex Auto Genres
 
