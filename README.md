@@ -79,7 +79,7 @@ python plex-auto-genres.py --library Movies --type standard-movie --set-posters
 ![Example Usage](/images/example-usage.gif)
 
 ## <a id="automating"></a>Automating
-I have conveniently included a script to help with automating the process of running plex-auto-genres when combined with any number of cron scheduling tools such as `contab`, `task scheduler`, etc. 
+I have conveniently included a script to help with automating the process of running plex-auto-genres when combined with any number of cron scheduling tools such as `crontab`, `windows task scheduler`, etc. 
 
 **If you have experience with Docker I reccommend using my docker image which will run on a schedule.**
 
