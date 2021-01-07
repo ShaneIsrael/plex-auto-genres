@@ -1,6 +1,5 @@
-![](https://img.shields.io/docker/build/shaneisrael/plex-auto-genres)
-
 # Plex Auto Genres
+![](https://img.shields.io/docker/cloud/build/shaneisrael/plex-auto-genres)
 
 Plex Auto Genres is a simple script that will add genre collection tags to your media making it much easier to search for genre specific content
 
