@@ -22,5 +22,5 @@ jobs:
           password: ${{ secrets.DOCKER_PASSWORD }}
           file: docker/Dockerfile
           repository: shaneisrael/plex-auto-genres
-          tags: name/app:latest
+          tags: latest
 
