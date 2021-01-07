@@ -1,7 +1,7 @@
 services:
   plex-auto-genres:
     container_name: plex-auto-genres
-    image: docker.pkg.github.com/shaneisrael/plex-auto-genres/plex-auto-genres:latest
+    image: shaneisrael/plex-auto-genres
     volumes:
       - path/to/config:/config    # /Users/some_user/git/plex-auto-genres/config:/config
       - path/to/posters:/posters  # /Users/some_user/git/plex-auto-genres/posters:/posters
