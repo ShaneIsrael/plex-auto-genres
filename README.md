@@ -80,9 +80,10 @@ python plex-auto-genres.py --library Movies --type standard-movie --set-posters
 ## <a id="automating"></a>Automating
 I have conveniently included a script to help with automating the process of running plex-auto-genres when combined with any number of cron scheduling tools such as `contab`, `task scheduler`, etc. 
 
+**If you have experience with Docker I reccommend using my docker image which will run on a schedule.**
+
 1. Copy `.env.example` to `.env` and update the values
 2. Copy `config.json.example` to `config.json` and update the values
-3. Set `logfileRoot` to a valid directory path where the automate script can write its log files (This is different from the success/failures.txt files)
 4. Each entry in the `run` list will be executed when you run this script
 5. Have some cron/scheduling process execute `python3 automate.py`, I suggest running it manually first to test that its working.
 
@@ -90,14 +91,22 @@ I have conveniently included a script to help with automating the process of run
 
 **Note:** *Don't be alarmed if you do not see any text output. The terminal output you normally see when running `main.py` is redirected to the log file **after** each executed `run` in your `config`.*
 
+## <a id="docker_usage"></a>Docker Usage
 
-Check the log file in the `logfileRoot` you provided once its done running for issues.
+1. **[Install Docker](https://docs.docker.com/get-docker/)**
+2. **[Install Docker Compose](https://docs.docker.com/compose/install/)**
+3. Clone or Download this repository
+4. Edit `docker/docker-compose.yml` 
+    1. Update the `volumes:` paths to point to the `config`,`logs`,`posters` directories in this repo.
+    2. Update the `environment:` variables. See [Getting Started](#getting_started).
+5. Copy `config/config.json.example` to `config/config.json`
+    1. Edit the `run` array examples to match your needs. When the script runs, each library entry in this array will be updated on your Plex server. 
+6. Run `docker-compose up -d`, **the script will run immediately then proceed to run on a schedule every night at 1am UTC.** Logs will be located at `logs/plex-auto-genres-automate.log`
+
+ Another Docker option of this tool can be **[found here.](https://github.com/fdarveau/plex-auto-genres-docker)**
 
 
 ## Troubleshooting
 1. If you are not seeing any new collections close your plex client and re-open it.
-2. Delete the generated `plex-*-finished.txt`  and `plex-*-failures.txt` files if you want the script to generate collections from the beginning. You may want to do this if you delete your collections and need them re-created.
+2. Delete the generated `plex-*-successful.txt`  and `plex-*-failures.txt` files if you want the script to generate collections from the beginning. You may want to do this if you delete your collections and need them re-created.
 3. Having the release year in the title of a tv show or movie can cause the lookup to fail in some instances. For example `Battlestar Galactica (2003)` will fail, but `Battlestar Galactica` will not.
-
-## <a id="docker_usage"></a>Docker Usage
-If you would like to run this via a docker container somebody has made that possible. [Follow their instructions here](https://github.com/fdarveau/plex-auto-genres-docker)
