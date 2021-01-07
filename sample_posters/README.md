@@ -5,7 +5,7 @@ script with the --set-posters flag.
 
 If you would like to create your own posters matching the sample posters style you can use the provided .psd file to create your own (requires Photoshop).
 
-Names must match your collection names in plex without the PLEX_COLLECTION_PREFIX. Any spaces in the names must be replaced with dashes (-).
+**Image names must match your collection names** in plex without the PLEX_COLLECTION_PREFIX. **Any spaces in the names must be replaced with dashes** (-).
 
 Example: 
 if you have `PLEX_COLLECTION_PREFIX="*"`
