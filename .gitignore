@@ -2,7 +2,6 @@
 .vscode/
 __pycache__/*
 __pycache__/
-posters/*/*
 logs/*
 config/config.json
 docker-compose.yml
