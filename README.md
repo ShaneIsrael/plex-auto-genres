@@ -7,8 +7,8 @@ Plex Auto Genres is a simple script that will add genre collection tags to your 
 2. [Optimal Setup](#optimal)
 3. [Getting Started](#getting_started)
 4. [Automating](#automating)
-5. [Troubleshooting](#troubleshooting)
-6. [Docker Usage](#docker_usage)
+5. [Docker Usage](#docker_usage)
+6. [Troubleshooting](#troubleshooting)
 
 ###### Movies example (with cover art set using --set-posters flag.)
 ![Movie Collections](/images/movies.png)
@@ -17,7 +17,7 @@ Plex Auto Genres is a simple script that will add genre collection tags to your 
 ![Anime Collections](/images/animes.png)
 
 ## Requirements
-1. Python 3 - Instructions > [Windows / Mac / Linux](https://installpython3.com/)
+1. Python 3 - Instructions > [Windows / Mac / Linux](https://installpython3.com/) (Not required if using Docker)
 2. [TMDB Api Key](https://developers.themoviedb.org/3/getting-started/introduction) (Only required for non-anime libraries)
 
 
@@ -37,7 +37,7 @@ If your anime shows and standard tv shows are in the same library, you can still
 
 ## <a id="getting_started"></a>Getting Started 
 1. Read the **Optimal Setup** section above
-2. Install the python dependencies listed in `requirements.txt`, if you have pip you can simply do `pip install -r requirements.txt`
+2. Run `python3 -m pip install -r requirements.txt` to install the required dependencies.
 3. Rename the `.env.example` file to `.env`
 4. Edit the `.env` file and set your plex username, password, and server name. If you are generating collections for standard media (non anime) you will need to also obtain an [TMDB Api Key](https://developers.themoviedb.org/3/getting-started/introduction) (for movies and tv shows) 
     |Variable|Authentication method|Value|
@@ -79,7 +79,7 @@ python plex-auto-genres.py --library Movies --type standard-movie --set-posters
 ![Example Usage](/images/example-usage.gif)
 
 ## <a id="automating"></a>Automating
-I have conveniently included a script to help with automating the process of running plex-auto-genres when combined with any number of cron scheduling tools such as `contab`, `task scheduler`, etc. 
+I have conveniently included a script to help with automating the process of running plex-auto-genres when combined with any number of cron scheduling tools such as `crontab`, `windows task scheduler`, etc. 
 
 **If you have experience with Docker I reccommend using my docker image which will run on a schedule.**
 
