@@ -18,6 +18,24 @@ def confirm():
         if response.lower() == 'n':
             return False
 
+class LoadConfig:
+    def __init__(self):
+        self.ignore = None
+        self.replace = None
+        if (os.path.isfile(f'config/config.json')):
+            with open('config/config.json') as f:
+                configJson = json.load(f)
+                try:
+                    if (configJson['general_settings']):
+                        config = configJson['general_settings']['genres'][TYPE]
+                        if (config['ignore']):
+                            self.ignore = config['ignore']
+                        if (config['replace']):
+                            self.replace = config['replace']
+                except KeyError as e: 
+                    print(f'{bcolors.WARNING}Could not load config due to invalid/missing key: {str(e)}{bcolors.ENDC}, see config/config.json.example')
+
+
 class LoadProgress:
     def __init__(self):
         self.successfulMedia = []

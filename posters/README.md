@@ -1,9 +1,8 @@
-These are sample posters I put together using a template from reddit user alexnyc1998
+These are posters I put together using a template from reddit user alexnyc1998
 
-If you would like to use these sample posters simply move them to the posters/standard-movie directory and run the
-script with the --set-posters flag.
+If you would like to use these posters simply run the script with the `--set-posters` flag.
 
-If you would like to create your own posters matching the sample posters style you can use the provided .psd file to create your own (requires Photoshop).
+If you would like to create your own posters matching the posters style you can use the provided .psd file to create your own (requires Photoshop).
 
 Names must match your collection names in plex without the PLEX_COLLECTION_PREFIX. Any spaces in the names must be replaced with dashes (-).
 

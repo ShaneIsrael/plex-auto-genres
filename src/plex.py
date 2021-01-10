@@ -17,7 +17,7 @@ from src.setup import (
     PLEX_USERNAME,
     validateDotEnv
 )
-from src.util import getSleepTime, LoadProgress, SaveProgress
+from src.util import getSleepTime, LoadConfig, LoadProgress, SaveProgress
 
 validateDotEnv(TYPE)
 
@@ -43,8 +43,10 @@ def connectToPlex():
 def generate(plex):
 
     dataLoad = LoadProgress()
+    config = LoadConfig()
     successfulMedia = dataLoad.successfulMedia
     failedMedia = dataLoad.failedMedia
+
 
     try:
         # plex library
@@ -79,6 +81,10 @@ def generate(plex):
                     if not DRY_RUN:
                         updateCount += 1
                         for genre in genres:
+                            if (config.ignore and (genre in config.ignore)):
+                                continue
+                            if (config.replace and (genre in config.replace.keys())):
+                                genre = config.replace[genre]
                             genre = PLEX_COLLECTION_PREFIX + genre
                             media.addCollection(genre)
 

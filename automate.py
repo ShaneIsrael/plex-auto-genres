@@ -19,7 +19,7 @@ if not os.path.isdir('logs'):
     sys.exit(1)
 
 LOGFILE = 'logs/plex-auto-genres-automate.log'
-executions = config['run']
+executions = config['automation_settings']['run']
 
 for i, run in enumerate(executions, 1):
     LIBRARY     = run['library']

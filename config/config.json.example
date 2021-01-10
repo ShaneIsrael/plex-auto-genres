@@ -1,24 +1,46 @@
 {
-    "run": [
-        {
-           "library": "Movies",
-           "type": "standard-movie",
-           "setPosters": false
-        },
-        {
-            "library": "Anime Shows",
-            "type": "anime",
-            "setPosters": false
-        },
-        {
-            "library": "TV Shows",
-            "type": "standard-tv",
-            "setPosters": false
+    "general_settings": {
+        "genres": {
+            "standard-tv": {
+                "ignore": [],
+                "replace": {}
+            },
+            "standard-movie": {
+                "ignore": ["TV Movie"],
+                "replace": {}
+            },
+            "anime": {
+                "ignore": ["ignore this genre", "kids", "seinen", "police"],
+                "replace": {
+                    "the genre to replace": "value to replace with",
+                    "shoujo ai": "shoujo",
+                    "shounen ai": "shounen",
+                }
+            }
         }
-        {
-            "library": "some other library",
-            "type": "some other type",
-            "setPosters": "upload cover art located in /posters?"
-        }
-    ]
+    },
+    "automation_settings": {
+        "run": [
+            {
+                "library": "Movies",
+                "type": "standard-movie",
+                "setPosters": false
+            },
+            {
+                "library": "Anime Shows",
+                "type": "anime",
+                "setPosters": false
+            },
+            {
+                "library": "TV Shows",
+                "type": "standard-tv",
+                "setPosters": false
+            }
+            {
+                "library": "some other library",
+                "type": "some other type",
+                "setPosters": "upload cover art located in /posters?"
+            }
+        ]
+    }
 }
