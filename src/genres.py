@@ -5,6 +5,10 @@ from time import sleep
 from src.setup import jikan, movie, tv
 
 
+def sanitizeTitle(title):
+    # remove the year from the title if found. e.x. some movie (1991) would return: some movie
+    return re.sub(r'\s(\(\d{4}\))', '', title)
+
 def getAnimeGenres(title):
     title = title.split(' [')[0]
     if len(title.split()) > 10:
@@ -49,8 +53,8 @@ def getStandardGenres(title, mediaType):
 
 def getGenres(media, mediaType):
     if mediaType == 'anime':
-        genres = getAnimeGenres(media.title)
+        genres = getAnimeGenres(sanitizeTitle(media.title))
     else:
-        genres = getStandardGenres(media.title, mediaType)
+        genres = getStandardGenres(sanitizeTitle(media.title), mediaType)
 
     return genres
