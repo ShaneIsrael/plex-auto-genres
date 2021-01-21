@@ -12,6 +12,9 @@ def getAnimeGenres(title):
 
     sleep(4) # sleeps 4s
     query = jikan.search('anime', title, page=1) # search result
+
+    if not query['results']:
+        return []
     animeId = query['results'][0]['mal_id'] # anime's MyAnimeList ID
 
     sleep(4)
