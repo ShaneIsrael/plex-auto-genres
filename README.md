@@ -49,7 +49,7 @@ If your anime shows and standard tv shows are in the same library, you can still
     |PLEX_TOKEN|Token|Your Plex Token|
     |PLEX_COLLECTION_PREFIX||(Optional) Prefix for the created Plex collections. For example, with a value of "\*", a collection named "Adventure", the name would instead be "*Adventure".<br><br>Default value : ""|
     |TMDB_API_KEY||Your TMDB api key (not required for anime library tagging)|
-5. Optional, If you want to update the poster art of your collections. See `sample_posters/readme.txt`
+5. Optional, If you want to update the poster art of your collections. See [`posters/README.md`](https://github.com/ShaneIsrael/plex-auto-genres/tree/master/posters)
 
 You are now ready to run the script
 ```
@@ -90,7 +90,7 @@ I have conveniently included a script to help with automating the process of run
 
 **Note:** *The first run of this script may take a long time (minutes to hours) depending on your library sizes.*
 
-**Note:** *Don't be alarmed if you do not see any text output. The terminal output you normally see when running `main.py` is redirected to the log file **after** each executed `run` in your `config`.*
+**Note:** *Don't be alarmed if you do not see any text output. The terminal output you normally see when running `plex-auto-genres.py` is redirected to the log file **after** each executed `run` in your `config`.*
 
 ## <a id="docker_usage"></a>Docker Usage
 

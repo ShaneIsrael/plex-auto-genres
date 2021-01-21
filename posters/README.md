@@ -8,8 +8,8 @@ If you would like to create your own posters matching the posters style you can 
 
 Example: 
 if you have `PLEX_COLLECTION_PREFIX="*"`
-Your "Action" collection in plex would be named "*Action"
-So you would title your poster art "action.png" without the "*".
+Your "Action" collection in plex would be named "\*Action"
+So you would title your poster art "action.png" without the "\*".
 
 If your collection in plex would be named "Science Fiction" (has a space)
 you would title your poster art "science-fiction.png"
