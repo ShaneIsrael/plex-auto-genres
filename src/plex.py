@@ -126,12 +126,16 @@ def uploadCollectionArt(plex):
 
     for c in collections:
         # remove prefix characters and replace spaces with dashes
-        title = sub(f'^{PLEX_COLLECTION_PREFIX}', '', c.title)
+        title = c.title
+
+        if (title[0] == PLEX_COLLECTION_PREFIX):
+            title = title.replace(PLEX_COLLECTION_PREFIX, '', 1)
 
         # path to the image
         posterPath = f'{postersDir}/' + \
             title.lower().replace(' ', '-') + '.png'
 
+        print(posterPath)
         # If the poster exists, upload it
         if os.path.isfile(posterPath):
             print(f'Uploading {title}...', end=' ')
