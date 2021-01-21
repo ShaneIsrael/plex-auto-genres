@@ -135,7 +135,6 @@ def uploadCollectionArt(plex):
         posterPath = f'{postersDir}/' + \
             title.lower().replace(' ', '-') + '.png'
 
-        print(posterPath)
         # If the poster exists, upload it
         if os.path.isfile(posterPath):
             print(f'Uploading {title}...', end=' ')
