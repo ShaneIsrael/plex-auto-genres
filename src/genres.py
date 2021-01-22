@@ -7,7 +7,7 @@ from src.setup import jikan, movie, tv
 
 def sanitizeTitle(title):
     # remove the year from the title if found. e.x. some movie (1991) would return: some movie
-    return re.sub(r'\s(\(\d{4}\))', '', title)
+    return re.sub('\\s(\\(\\d{4}\\))', '', title)
 
 def getAnimeGenres(title):
     title = title.split(' [')[0]
