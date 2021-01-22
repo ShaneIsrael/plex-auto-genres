@@ -4,6 +4,7 @@
 if [ ! -f /config/config.json ]
 then
     echo "No config.json file found at /config/config.json. Did you volume mount the config directory?"
+    exit
 fi
 
 # generate collections once on container start
