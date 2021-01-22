@@ -14,7 +14,7 @@
                 "replace": {
                     "the genre to replace": "value to replace with",
                     "shoujo ai": "shoujo",
-                    "shounen ai": "shounen",
+                    "shounen ai": "shounen"
                 }
             }
         }
