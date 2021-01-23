@@ -73,7 +73,7 @@ def generate(plex):
 
             if mediaIdentifier not in successfulMedia and mediaIdentifier not in failedMedia:
                 genres = getGenres(media, TYPE)
-                
+
                 if not genres:
                     failedMedia.append(mediaIdentifier)
 
@@ -150,5 +150,30 @@ def uploadCollectionArt(plex):
         else:
             print(f'No poster found for collection {bcolors.WARNING}{title}{bcolors.ENDC}, expected {bcolors.WARNING}'
                 + sub(f'^{os.getcwd()}', '', posterPath) + f'{bcolors.ENDC}.')
+
+    return
+
+def sortCollections(plex, library):
+    config = LoadConfig()
+    prefix = config.sortedPrefix
+    sortedCollections = config.sortedCollections
+
+    if not prefix:
+        print(f'{bcolors.FAIL}NO PREFIX SET.{bcolors.ENDC} Please set the {bcolors.WARNING}sortedPrefix{bcolors.ENDC} value in your config/config.json file.')
+        return
+    if not sortedCollections:
+        print(f'{bcolors.FAIL}NO PREFIX COLLECTIONS SET.{bcolors.ENDC} Please set the {bcolors.WARNING}sortedCollections{bcolors.ENDC} list in your config/config.json file.')
+        return
+
+    for c in sortedCollections:
+        c = c.strip().lower()
+        collections = plex.library.section(library).collection(title=c)
+        if (len(collections) > 0):
+            collection = collections[0]
+            sortTitle = f'{prefix}{collection.title}'
+            collection.edit(**{'titleSort.value': sortTitle, 'titleSort.locked': '0'})
+            print(f'Collection {bcolors.OKGREEN}{collection.title}{bcolors.ENDC} sort title updated to {bcolors.OKGREEN}{sortTitle}{bcolors.ENDC}')
+        else:
+            print(f'Could not find a collection with name {bcolors.WARNING}{c}{bcolors.ENDC} in your Plex {bcolors.WARNING}{library}{bcolors.ENDC} collections.')
 
     return

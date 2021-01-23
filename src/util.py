@@ -22,6 +22,8 @@ class LoadConfig:
     def __init__(self):
         self.ignore = None
         self.replace = None
+        self.sortedPrefix = None
+        self.sortedCollections = None
         if (os.path.isfile(f'config/config.json')):
             with open('config/config.json') as f:
                 configJson = json.load(f)
@@ -32,8 +34,12 @@ class LoadConfig:
                             self.ignore = config['ignore']
                         if (config['replace']):
                             self.replace = config['replace']
+                        if (config['sortedPrefix']):
+                            self.sortedPrefix = config['sortedPrefix']
+                        if (config['sortedCollections']):
+                            self.sortedCollections = config['sortedCollections']
                 except KeyError as e: 
-                    print(f'{bcolors.WARNING}Could not load config due to invalid/missing key: {str(e)}{bcolors.ENDC}, see config/config.json.example')
+                    print(f'{bcolors.WARNING}WARNING: Invalid or Missing key: {str(e)}{bcolors.ENDC} some functionality may fail, see config/config.json.example')
 
 
 class LoadProgress:
