@@ -44,7 +44,7 @@
                 "type": "standard-tv",
                 "setPosters": false,
                 "sortCollections": false
-            }
+            },
             {
                 "library": "some other library",
                 "type": "some other type",
