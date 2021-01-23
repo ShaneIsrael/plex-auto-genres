@@ -14,7 +14,7 @@
                 "sortedCollections": ["action", "adventure", "animation", "comedy", "crime", "documentary", "drama", "family", "fantasy", "history", "horror", "music", "mystery", "romance", "science fiction", "thriller", "war", "western"]
             },
             "anime": {
-                "ignore": ["ignore this genre", "kids", "seinen", "police"],
+                "ignore": ["dont create collection for this genre", "kids", "seinen", "police"],
                 "replace": {
                     "the genre to replace": "value to replace with",
                     "shoujo ai": "shoujo",

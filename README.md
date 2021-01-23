@@ -39,7 +39,8 @@ If your anime shows and standard tv shows are in the same library, you can still
 1. Read the **Optimal Setup** section above
 2. Run `python3 -m pip install -r requirements.txt` to install the required dependencies.
 3. Rename the `.env.example` file to `.env`
-4. Edit the `.env` file and set your plex username, password, and server name. If you are generating collections for standard media (non anime) you will need to also obtain an [TMDB Api Key](https://developers.themoviedb.org/3/getting-started/introduction) (for movies and tv shows) 
+4. Rename the `config/config.json.example` file to `config/config.json`. The default settings are probably fine.
+5. Edit the `.env` file and set your plex username, password, and server name. If you are generating collections for standard media (non anime) you will need to also obtain an [TMDB Api Key](https://developers.themoviedb.org/3/getting-started/introduction) (for movies and tv shows) 
     |Variable|Authentication method|Value|
     |---|---|---|
     |PLEX_USERNAME|Username and password|Your Plex Username|
@@ -49,7 +50,7 @@ If your anime shows and standard tv shows are in the same library, you can still
     |PLEX_TOKEN|Token|Your Plex Token|
     |PLEX_COLLECTION_PREFIX||(Optional) Prefix for the created Plex collections. For example, with a value of "\*", a collection named "Adventure", the name would instead be "*Adventure".<br><br>Default value : ""|
     |TMDB_API_KEY||Your TMDB api key (not required for anime library tagging)|
-5. Optional, If you want to update the poster art of your collections. See [`posters/README.md`](https://github.com/ShaneIsrael/plex-auto-genres/tree/master/posters)
+6. Optional, If you want to update the poster art of your collections. See [`posters/README.md`](https://github.com/ShaneIsrael/plex-auto-genres/tree/master/posters)
 
 You are now ready to run the script
 ```
@@ -63,6 +64,7 @@ optional arguments:
   --type {anime,standard-movie,standard-tv}
                         The type of media contained in the library
   --set-posters         uploads posters located in posters/<type> of matching collections. Supports (.PNG)
+  --sort                sort collections by adding the sort prefix character to the collection sort title
   --dry                 Do not modify plex collections (debugging feature)
   --no-progress         Do not display the live updating progress bar
   -f, --force           Force proccess on all media (independently of proggress recorded in logs/).
