@@ -73,7 +73,7 @@ def generate(plex):
 
             if mediaIdentifier not in successfulMedia and mediaIdentifier not in failedMedia:
                 genres = getGenres(media, TYPE)
-
+                
                 if not genres:
                     failedMedia.append(mediaIdentifier)
 
@@ -81,9 +81,9 @@ def generate(plex):
                     if not DRY_RUN:
                         updateCount += 1
                         for genre in genres:
-                            if (config.ignore and (genre in config.ignore)):
+                            if (config.ignore and (genre.lower() in map(str.lower, config.ignore))):
                                 continue
-                            if (config.replace and (genre in config.replace.keys())):
+                            if (config.replace and (genre.lower() in map(str.lower, config.replace.keys()))):
                                 genre = config.replace[genre]
                             genre = PLEX_COLLECTION_PREFIX + genre
                             media.addCollection(genre)
