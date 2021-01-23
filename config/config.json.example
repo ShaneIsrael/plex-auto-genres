@@ -3,11 +3,15 @@
         "genres": {
             "standard-tv": {
                 "ignore": [],
-                "replace": {}
+                "replace": {},
+                "sortedPrefix": "",
+                "sortedCollections": []
             },
             "standard-movie": {
                 "ignore": ["TV Movie"],
-                "replace": {}
+                "replace": {},
+                "sortedPrefix": "*",
+                "sortedCollections": ["action", "adventure", "animation", "comedy", "crime", "documentary", "drama", "family", "fantasy", "history", "horror", "music", "mystery", "romance", "science fiction", "thriller", "war", "western"]
             },
             "anime": {
                 "ignore": ["ignore this genre", "kids", "seinen", "police"],
@@ -15,7 +19,9 @@
                     "the genre to replace": "value to replace with",
                     "shoujo ai": "shoujo",
                     "shounen ai": "shounen"
-                }
+                },
+                "sortedPrefix": "*",
+                "sortedCollections": ["action", "adventure", "cars", "comedy", "dementia", "demons", "drama", "ecchi", "fantasy", "game", "harem", "historical", "horror", "magic", "martial arts", "mecha", "military", "music", "mystery", "psychological", "romance", "samurai", "school", "sci-fi", "shoujo", "shounen", "slice of life", "space", "sports", "supernatural", "super power", "thriller", "vampire"]
             }
         }
     },
@@ -24,22 +30,26 @@
             {
                 "library": "Movies",
                 "type": "standard-movie",
-                "setPosters": false
+                "setPosters": false,
+                "sortCollections": false
             },
             {
                 "library": "Anime Shows",
                 "type": "anime",
-                "setPosters": false
+                "setPosters": false,
+                "sortCollections": false
             },
             {
                 "library": "TV Shows",
                 "type": "standard-tv",
-                "setPosters": false
+                "setPosters": false,
+                "sortCollections": false
             }
             {
                 "library": "some other library",
                 "type": "some other type",
-                "setPosters": "upload cover art located in /posters?"
+                "setPosters": "upload cover art located in /posters?",
+                "sortCollections": "add sort prefix to collections sort title?"
             }
         ]
     }

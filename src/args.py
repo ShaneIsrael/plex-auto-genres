@@ -12,6 +12,7 @@ parser.add_argument('--library', action='store', dest='library', nargs=1,
 parser.add_argument('--type', dest='type', action='store', choices=('anime', 'standard-movie', 'standard-tv'), nargs=1,
                     help='The type of media contained in the library')
 parser.add_argument('--set-posters', help='uploads posters located in posters/<type> of matching collections. Supports (.PNG)', action='store_true')
+parser.add_argument('--sort', help='sort collections by adding the sort prefix character to the collection sort title', action='store_true')
 parser.add_argument('--dry', help='Do not modify plex collections (debugging feature)', action='store_true')
 parser.add_argument('--no-progress', help='Do not display the live updating progress bar', action='store_true')
 parser.add_argument('-f', '--force', help='Force proccess on all media (independently of proggress recorded in logs/).', action='store_true')
@@ -32,6 +33,7 @@ LIBRARY     = args.library[0]
 TYPE        = args.type[0]
 DRY_RUN     = args.dry
 SET_POSTERS = args.set_posters
+SORT        = args.sort
 FORCE       = args.force
 NO_PROMPT   = args.yes
 NO_PROGRESS = args.no_progress
