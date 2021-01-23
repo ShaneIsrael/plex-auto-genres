@@ -1,13 +1,23 @@
 import os
 import sys
 import json
+import math
 import time
 import datetime
+from timeit import default_timer as timer
 from subprocess import Popen, PIPE, STDOUT
 from src.colors import bcolors
 
+WAIT_TIME=45
+
 def getTimestamp():
     return datetime.datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S')
+
+def rateLimitSleep(timeDelta):
+    if timeDelta < WAIT_TIME:
+        printWithTimestamp(f'\t> Sleeping for {math.ceil(WAIT_TIME - timeDelta)} seconds to avoid Plex connection rate limit...')
+        time.sleep(math.ceil(WAIT_TIME - timeDelta))
+    return
 
 def printWithTimestamp(text):
     print(f'{getTimestamp()}\t{text}')
@@ -33,7 +43,8 @@ for i, run in enumerate(executions, 1):
     SET_POSTERS      = run['setPosters']
     SORT_COLLECTIONS = run['sortCollections']
 
-    
+    start = timer()
+
     printWithTimestamp(f'{bcolors.OKCYAN}Running [{i}/{len(executions)}] -- library={LIBRARY}, type={TYPE}, setPosters={SET_POSTERS}, sortCollections={SORT_COLLECTIONS} {bcolors.ENDC}')
 
     argumentList = ['python', 'plex-auto-genres.py', '--library', f'{LIBRARY}', '--type', f'{TYPE}', '--yes', '--no-progress']
@@ -50,7 +61,10 @@ for i, run in enumerate(executions, 1):
 
     if SORT_COLLECTIONS:
         argumentList.append('--sort')
-    
+
+    rateLimitSleep(timer() - start)
+    start = timer()
+
     if SET_POSTERS or SORT_COLLECTIONS:
         printWithTimestamp(f'\t> Running post process command(s): setPosters={SET_POSTERS} sortCollections={SORT_COLLECTIONS}...')
         with Popen(argumentList, stdout=PIPE, stderr=STDOUT) as p, open(LOGFILE, 'ab') as file:
@@ -59,7 +73,9 @@ for i, run in enumerate(executions, 1):
             file.write(str.encode('\n'))
             file.close()
         printWithTimestamp('\t> Post process command(s) finished...')
+        rateLimitSleep(timer() - start)
     else:
         printWithTimestamp('\t> No post process commands to run, finished...')
+
 
 print()
