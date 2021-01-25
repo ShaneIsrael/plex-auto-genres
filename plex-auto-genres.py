@@ -1,18 +1,17 @@
 #pylint: disable=no-member, line-too-long
+import sys
 from src.args import SET_POSTERS, LIBRARY, TYPE, NO_PROMPT, SORT, QUERY
 from src.colors import bcolors
 from src.setup import PLEX_COLLECTION_PREFIX, PLEX_SERVER_NAME, PLEX_BASE_URL
-from src.util import confirm
-from src.plex import connectToPlex, uploadCollectionArt, sortCollections, query, generate
+from src.util import confirm, query
+from src.plex import connectToPlex, uploadCollectionArt, sortCollections, generate
 
-class QueryObj:
-    def __init__(self, title):
-        self.title = title
+
 
 if __name__ == '__main__':
     if QUERY:
-        query(QueryObj(QUERY))
-        exit()
+        query(QUERY)
+        sys.exit()
 
     plex = connectToPlex()
     if SET_POSTERS:

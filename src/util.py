@@ -1,9 +1,16 @@
 import os
+from datetime import datetime
 import json
 from re import search
 from src.colors import bcolors
 from src.args import DRY_RUN, TYPE
+from src.setup import jikan, movie, tv
+from src.genres import getGenres, sanitizeTitle
 
+class QueryObj:
+    def __init__(self, title):
+        self.title = title
+   
 # tmdb doesn't have a rate limit, but we sleep for 0.5 anyways
 # Jikan fetch requires 2 request with a 4 second sleep on each request
 def getSleepTime(mediaType):
@@ -17,6 +24,67 @@ def confirm():
             return True
         if response.lower() == 'n':
             return False
+
+def query(q):
+    q = QueryObj(q)
+    if TYPE == 'anime':
+        title = q.title.split(' [')[0]
+        if len(title.split()) > 10:
+            title = " ".join(title.split()[0:10])
+
+        query = jikan.search('anime', title, page=1) # search result
+
+        if not query['results']:
+            print(f'Found 0 results on MyAnimeList for {bcolors.OKCYAN}{q.title}{bcolors.ENDC}')
+            return
+        else:
+            results = []
+            for r in query['results']:
+                if title.lower() in r['title'].lower() and r['start_date']:
+                    results.append(r)
+            if results:
+                results = sorted(results, key = lambda i: datetime.strptime(i['start_date'].split('T')[0], '%Y-%m-%d'))
+            else:
+                results = query['results'][:5]
+                results = sorted(results, key = lambda i: i['start_date'])
+
+            print(f'Found {bcolors.WARNING}{len(results)} result(s){bcolors.ENDC} for {bcolors.OKCYAN}{q.title}{bcolors.ENDC}')
+            print(f'Top result: {bcolors.OKGREEN}{results[0]["title"]}{bcolors.ENDC} Released: {results[0]["start_date"].split("-")[0]}')
+            animeId = results[0]['mal_id'] # anime's MyAnimeList ID
+            anime = jikan.anime(animeId) # all of the anime's info
+            genres = [ e['name'] for e in anime['genres'] ] # list comprehension
+            print(f'Genres: {bcolors.OKGREEN}{", ".join(genres)}{bcolors.ENDC}')
+            if len(results) > 1:
+                print(f'\nNext highest matching results...')
+                for i, r in enumerate(results[1:], 0):
+                    print(f'{bcolors.WARNING}{r["title"]}{bcolors.ENDC} Released: {r["start_date"].split("-")[0]}')
+                    if i == 5:
+                        break
+    else:
+        db = movie if TYPE == 'standard-movie' else tv
+        results = db.search(sanitizeTitle(q.title))
+        if (len(results) > 0):
+            print(f'Found {bcolors.WARNING}{len(results)} result(s){bcolors.ENDC} for {bcolors.OKCYAN}{q.title}{bcolors.ENDC}')
+            if (TYPE == 'standard-tv'):
+                results[0] = db.details(results[0].id)
+                genres = [ y[0] for y in [x['name'].split(' & ') for x in results[0].genres] ]
+                print(f'Top result: {bcolors.OKGREEN}{results[0].name}{bcolors.ENDC} Released: {results[0].first_air_date.split("-")[0]}')
+            else:
+                print(f'Top result: {bcolors.OKGREEN}{results[0].title}{bcolors.ENDC} Released: {results[0].release_date.split("-")[0]}')
+                genres = getGenres(q, TYPE)
+            print(f'Genres: {bcolors.OKGREEN}{", ".join(genres)}{bcolors.ENDC}')
+            if len(results) > 1:
+                print(f'\nNext highest matching results...')
+                for i,  r in enumerate(results[1:], 0):
+                    if (TYPE == 'standard-tv'):
+                        r = db.details(r.id)
+                        print(f'{bcolors.WARNING}{r.name}{bcolors.ENDC} Released: {r.first_air_date.split("-")[0]}')
+                    else:
+                        print(f'{bcolors.WARNING}{r.title}{bcolors.ENDC} Released: {r.release_date.split("-")[0]}')
+                    if i == 5:
+                        break
+        else:
+            print(f'Found 0 results on TMDB for {bcolors.OKCYAN}{q.title}{bcolors.ENDC}')
 
 class LoadConfig:
     def __init__(self):
