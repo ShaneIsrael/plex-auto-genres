@@ -102,6 +102,8 @@ def generate(plex):
 
     except KeyboardInterrupt:
         print('\n\nOperation interupted, progress has been saved.')
+    except Exception as e:
+        print(f'\n\n{e}')
 
     SaveProgress(successfulMedia=successfulMedia, failedMedia=failedMedia)
     return updateCount
