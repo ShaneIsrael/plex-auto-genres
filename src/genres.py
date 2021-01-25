@@ -19,7 +19,15 @@ def getAnimeGenres(title):
 
     if not query['results']:
         return []
-    animeId = query['results'][0]['mal_id'] # anime's MyAnimeList ID
+    results = []
+    for r in query['results']:
+        if title.lower() in r['title'].lower():
+            results.append(r)
+    if results:
+        results = sorted(results, key = lambda i: i['mal_id'])
+    else:
+        results = query['results']
+    animeId = results[0]['mal_id'] # anime's MyAnimeList ID
 
     sleep(4)
 

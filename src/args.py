@@ -13,6 +13,7 @@ parser.add_argument('--type', dest='type', action='store', choices=('anime', 'st
                     help='The type of media contained in the library')
 parser.add_argument('--set-posters', help='uploads posters located in posters/<type> of matching collections. Supports (.PNG)', action='store_true')
 parser.add_argument('--sort', help='sort collections by adding the sort prefix character to the collection sort title', action='store_true')
+parser.add_argument('--query', action='store', dest='query', nargs='+', help='Looks up genre and match info for the given media title.')
 parser.add_argument('--dry', help='Do not modify plex collections (debugging feature)', action='store_true')
 parser.add_argument('--no-progress', help='Do not display the live updating progress bar', action='store_true')
 parser.add_argument('-f', '--force', help='Force proccess on all media (independently of proggress recorded in logs/).', action='store_true')
@@ -24,13 +25,18 @@ if len(sys.argv)==1:
 
 args = parser.parse_args()
 
-if not args.type or not args.library:
+if not args.query and (not args.type or not args.library):
     print(f'\n{bcolors.FAIL}The parameters {bcolors.BOLD}--library{bcolors.ENDC}{bcolors.FAIL} ' +
         f'and {bcolors.BOLD}--type{bcolors.ENDC}{bcolors.FAIL} are required.\n{bcolors.ENDC}')
     sys.exit(1)
 
-LIBRARY     = args.library[0]
+if args.query and not args.type:
+    print(f'\n{bcolors.FAIL}The parameter {bcolors.BOLD}--type{bcolors.ENDC}{bcolors.FAIL} is required with the --query command.')
+    sys.exit(1)
+
+LIBRARY     = args.library[0] if args.library else None
 TYPE        = args.type[0]
+QUERY       = ' '.join(args.query) if args.query else None
 DRY_RUN     = args.dry
 SET_POSTERS = args.set_posters
 SORT        = args.sort

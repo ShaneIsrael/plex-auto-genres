@@ -17,6 +17,7 @@
                 "ignore": ["dont create collection for this genre", "kids", "seinen", "police"],
                 "replace": {
                     "the genre to replace": "value to replace with",
+                    "must be lowercase": "Any fOrmAtted Value",
                     "shoujo ai": "shoujo",
                     "shounen ai": "shounen"
                 },

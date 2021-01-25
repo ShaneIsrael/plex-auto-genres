@@ -1,12 +1,13 @@
 import math
 import os
+from datetime import datetime
 from re import sub
 
 from plexapi.myplex import MyPlexAccount, PlexServer
 
 from src.args import DRY_RUN, LIBRARY, TYPE
 from src.colors import bcolors
-from src.genres import getGenres
+from src.genres import getGenres, sanitizeTitle
 from src.progress import printProgressBar
 from src.setup import (
     PLEX_BASE_URL,
@@ -15,7 +16,10 @@ from src.setup import (
     PLEX_SERVER_NAME,
     PLEX_TOKEN,
     PLEX_USERNAME,
-    validateDotEnv
+    validateDotEnv,
+    jikan,
+    movie,
+    tv
 )
 from src.util import getSleepTime, LoadConfig, LoadProgress, SaveProgress
 
@@ -84,7 +88,7 @@ def generate(plex):
                             if (config.ignore and (genre.lower() in map(str.lower, config.ignore))):
                                 continue
                             if (config.replace and (genre.lower() in map(str.lower, config.replace.keys()))):
-                                genre = config.replace[genre]
+                                genre = config.replace[genre.lower()]
                             genre = PLEX_COLLECTION_PREFIX + genre
                             media.addCollection(genre)
 
@@ -102,11 +106,72 @@ def generate(plex):
 
     except KeyboardInterrupt:
         print('\n\nOperation interupted, progress has been saved.')
+    except KeyError as e:
+        print(f'\n\nKeyError: {e}, if this is a replace value in your config, please make it lowercase.')
     except Exception as e:
-        print(f'\n\n{e}')
+        print(f'\n\nUncaught Exception: {e}')
 
     SaveProgress(successfulMedia=successfulMedia, failedMedia=failedMedia)
     return updateCount
+
+def query(q):
+    if TYPE == 'anime':
+        title = q.title.split(' [')[0]
+        if len(title.split()) > 10:
+            title = " ".join(title.split()[0:10])
+
+        query = jikan.search('anime', title, page=1) # search result
+
+        if not query['results']:
+            print(f'Found 0 results on MyAnimeList for {bcolors.OKCYAN}{q.title}{bcolors.ENDC}')
+            return
+        else:
+            results = []
+            for r in query['results']:
+                if title.lower() in r['title'].lower():
+                    results.append(r)
+            if results:
+                results = sorted(results, key = lambda i: i['mal_id'])
+            else:
+                results = query['results']
+
+            print(f'Found {bcolors.WARNING}{len(results)} result(s){bcolors.ENDC} for {bcolors.OKCYAN}{q.title}{bcolors.ENDC}')
+            print(f'Top result: {bcolors.OKGREEN}{results[0]["title"]}{bcolors.ENDC} Released: {results[0]["start_date"].split("-")[0]}')
+            animeId = results[0]['mal_id'] # anime's MyAnimeList ID
+            anime = jikan.anime(animeId) # all of the anime's info
+            genres = [ e['name'] for e in anime['genres'] ] # list comprehension
+            print(f'Genres: {bcolors.OKGREEN}{", ".join(genres)}{bcolors.ENDC}')
+            if len(results) > 1:
+                print(f'\nNext highest matching results...')
+                for i, r in enumerate(results[1:], 0):
+                    print(f'{bcolors.WARNING}{r["title"]}{bcolors.ENDC} Released: {r["start_date"].split("-")[0]}')
+                    if i == 2:
+                        break
+    else:
+        db = movie if TYPE == 'standard-movie' else tv
+        results = db.search(sanitizeTitle(q.title))
+        if (len(results) > 0):
+            print(f'Found {bcolors.WARNING}{len(results)} result(s){bcolors.ENDC} for {bcolors.OKCYAN}{q.title}{bcolors.ENDC}')
+            if (TYPE == 'standard-tv'):
+                results[0] = db.details(results[0].id)
+                genres = [ y[0] for y in [x['name'].split(' & ') for x in results[0].genres] ]
+                print(f'Top result: {bcolors.OKGREEN}{results[0].name}{bcolors.ENDC} Released: {results[0].first_air_date.split("-")[0]}')
+            else:
+                print(f'Top result: {bcolors.OKGREEN}{results[0].title}{bcolors.ENDC} Released: {results[0].release_date.split("-")[0]}')
+                genres = getGenres(q, TYPE)
+            print(f'Genres: {bcolors.OKGREEN}{", ".join(genres)}{bcolors.ENDC}')
+            if len(results) > 1:
+                print(f'\nNext highest matching results...')
+                for i,  r in enumerate(results[1:], 0):
+                    if (TYPE == 'standard-tv'):
+                        r = db.details(r.id)
+                        print(f'{bcolors.WARNING}{r.name}{bcolors.ENDC} Released: {r.first_air_date.split("-")[0]}')
+                    else:
+                        print(f'{bcolors.WARNING}{r.title}{bcolors.ENDC} Released: {r.release_date.split("-")[0]}')
+                    if i == 2:
+                        break
+        else:
+            print(f'Found 0 results on TMDB for {bcolors.OKCYAN}{q.title}{bcolors.ENDC}')
 
 def uploadCollectionArt(plex):
     # complete path to the posters directory
