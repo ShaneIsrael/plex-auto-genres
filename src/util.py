@@ -42,13 +42,14 @@ def query(q):
             for r in query['results']:
                 if title.lower() in r['title'].lower() and r['start_date']:
                     results.append(r)
+            totalResults = len(results) if results else len(query['results'])
             if results:
                 results = sorted(results, key = lambda i: datetime.strptime(i['start_date'].split('T')[0], '%Y-%m-%d'))
             else:
                 results = query['results'][:5]
                 results = sorted(results, key = lambda i: i['start_date'])
 
-            print(f'Found {bcolors.WARNING}{len(results)} result(s){bcolors.ENDC} for {bcolors.OKCYAN}{q.title}{bcolors.ENDC}')
+            print(f'Found {bcolors.WARNING}{totalResults} result(s){bcolors.ENDC} for {bcolors.OKCYAN}{q.title}{bcolors.ENDC}')
             print(f'Top result: {bcolors.OKGREEN}{results[0]["title"]}{bcolors.ENDC} Released: {results[0]["start_date"].split("-")[0]}')
             animeId = results[0]['mal_id'] # anime's MyAnimeList ID
             anime = jikan.anime(animeId) # all of the anime's info
