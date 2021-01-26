@@ -65,17 +65,21 @@ optional arguments:
                         The type of media contained in the library
   --set-posters         uploads posters located in posters/<type> of matching collections. Supports (.PNG)
   --sort                sort collections by adding the sort prefix character to the collection sort title
+  --query QUERY [QUERY ...]
+                        Looks up genre and match info for the given media title.
   --dry                 Do not modify plex collections (debugging feature)
   --no-progress         Do not display the live updating progress bar
   -f, --force           Force proccess on all media (independently of proggress recorded in logs/).
   -y, --yes             Do not prompt.
 
-example: 
+examples: 
 python plex-auto-genres.py --library "Anime Movies" --type anime
 python plex-auto-genres.py --library "Anime Shows" --type anime
 python plex-auto-genres.py --library Movies --type standard-movie
 python plex-auto-genres.py --library "TV Shows" --type standard-tv
 python plex-auto-genres.py --library Movies --type standard-movie --set-posters
+python plex-auto-genres.py --library Movies --type standard-movie --sort
+python plex-auto-genres.py --type anime --query chihayafuru
 ```
 
 ![Example Usage](/.github/images/example-usage.gif)
