@@ -3,9 +3,11 @@
         "genres": {
             "standard-tv": {
                 "ignore": [],
-                "replace": {},
+                "replace": {
+                    "sci-fi": "science fiction"
+                },
                 "sortedPrefix": "",
-                "sortedCollections": []
+                "sortedCollections": ["action", "adventure", "animation", "comedy", "crime", "documentary", "drama", "family", "fantasy", "history", "kids", "politics", "reality", "sci-fi", "science fiction", "war", "western"]
             },
             "standard-movie": {
                 "ignore": ["TV Movie"],
