@@ -1,13 +1,19 @@
 #pylint: disable=no-member, line-too-long
-from src.args import SET_POSTERS, LIBRARY, TYPE, NO_PROMPT, SORT
+import sys
+from src.args import SET_POSTERS, LIBRARY, TYPE, NO_PROMPT, SORT, QUERY
 from src.colors import bcolors
 from src.setup import PLEX_COLLECTION_PREFIX, PLEX_SERVER_NAME, PLEX_BASE_URL
-from src.util import confirm
+from src.util import confirm, query
 from src.plex import connectToPlex, uploadCollectionArt, sortCollections, generate
 
-plex = connectToPlex()
+
 
 if __name__ == '__main__':
+    if QUERY:
+        query(QUERY)
+        sys.exit()
+
+    plex = connectToPlex()
     if SET_POSTERS:
         print(f'\nYou are about to update your {bcolors.WARNING}[{LIBRARY}]{bcolors.ENDC} collection\'s posters to any matching image titles located at {bcolors.WARNING}posters/{bcolors.ENDC}.')
         if NO_PROMPT or confirm():

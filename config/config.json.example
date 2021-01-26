@@ -3,9 +3,11 @@
         "genres": {
             "standard-tv": {
                 "ignore": [],
-                "replace": {},
+                "replace": {
+                    "sci-fi": "science fiction"
+                },
                 "sortedPrefix": "",
-                "sortedCollections": []
+                "sortedCollections": ["action", "adventure", "animation", "comedy", "crime", "documentary", "drama", "family", "fantasy", "history", "kids", "politics", "reality", "sci-fi", "science fiction", "war", "western"]
             },
             "standard-movie": {
                 "ignore": ["TV Movie"],
@@ -17,6 +19,7 @@
                 "ignore": ["dont create collection for this genre", "kids", "seinen", "police"],
                 "replace": {
                     "the genre to replace": "value to replace with",
+                    "must be lowercase": "Any fOrmAtted Value",
                     "shoujo ai": "shoujo",
                     "shounen ai": "shounen"
                 },

@@ -1,5 +1,6 @@
 #pylint: disable=no-member
 import re
+from datetime import datetime
 from time import sleep
 
 from src.setup import jikan, movie, tv
@@ -19,7 +20,18 @@ def getAnimeGenres(title):
 
     if not query['results']:
         return []
-    animeId = query['results'][0]['mal_id'] # anime's MyAnimeList ID
+    results = []
+    for r in query['results']:
+        if title.lower() in r['title'].lower() and r['start_date']:
+            results.append(r)
+    if results:
+        results = sorted(results, key = lambda i: datetime.strptime(i['start_date'].split('T')[0], '%Y-%m-%d'))
+        for r in results:
+            print(r['title'])
+    else:
+        results = query['results'][:5]
+        results = sorted(results, key = lambda i: i['start_date'])
+    animeId = results[0]['mal_id'] # anime's MyAnimeList ID
 
     sleep(4)
 

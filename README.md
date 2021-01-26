@@ -11,10 +11,10 @@ Plex Auto Genres is a simple script that will add genre collection tags to your 
 6. [Troubleshooting](#troubleshooting)
 
 ###### Movies example (with cover art set using --set-posters flag.)
-![Movie Collections](/images/movies.png)
+![Movie Collections](/.github/images/movies.png)
 
 ###### Anime example
-![Anime Collections](/images/animes.png)
+![Anime Collections](/.github/images/animes.png)
 
 ## Requirements
 1. Python 3 - Instructions > [Windows / Mac / Linux](https://installpython3.com/) (Not required if using Docker)
@@ -33,7 +33,7 @@ For this to work well your plex library should be sorted. Meaning standard and n
 If your anime shows and standard tv shows are in the same library, you can still use this script just choose (**standard**) as the type. However, doing this could cause incorrect genres added to some or all of your anime media entries.
 
 ###### Here is an example of my plex library setup
-![Plex Library Example](/images/example-library-setup.png)
+![Plex Library Example](/.github/images/example-library-setup.png)
 
 ## <a id="getting_started"></a>Getting Started 
 1. Read the **Optimal Setup** section above
@@ -65,20 +65,24 @@ optional arguments:
                         The type of media contained in the library
   --set-posters         uploads posters located in posters/<type> of matching collections. Supports (.PNG)
   --sort                sort collections by adding the sort prefix character to the collection sort title
+  --query QUERY [QUERY ...]
+                        Looks up genre and match info for the given media title.
   --dry                 Do not modify plex collections (debugging feature)
   --no-progress         Do not display the live updating progress bar
   -f, --force           Force proccess on all media (independently of proggress recorded in logs/).
   -y, --yes             Do not prompt.
 
-example: 
+examples: 
 python plex-auto-genres.py --library "Anime Movies" --type anime
 python plex-auto-genres.py --library "Anime Shows" --type anime
 python plex-auto-genres.py --library Movies --type standard-movie
 python plex-auto-genres.py --library "TV Shows" --type standard-tv
 python plex-auto-genres.py --library Movies --type standard-movie --set-posters
+python plex-auto-genres.py --library Movies --type standard-movie --sort
+python plex-auto-genres.py --type anime --query chihayafuru
 ```
 
-![Example Usage](/images/example-usage.gif)
+![Example Usage](/.github/images/example-usage.gif)
 
 ## <a id="automating"></a>Automating
 I have conveniently included a script to help with automating the process of running plex-auto-genres when combined with any number of cron scheduling tools such as `crontab`, `windows task scheduler`, etc. 

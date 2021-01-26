@@ -1,12 +1,13 @@
 import math
 import os
+from datetime import datetime
 from re import sub
 
 from plexapi.myplex import MyPlexAccount, PlexServer
 
 from src.args import DRY_RUN, LIBRARY, TYPE
 from src.colors import bcolors
-from src.genres import getGenres
+from src.genres import getGenres, sanitizeTitle
 from src.progress import printProgressBar
 from src.setup import (
     PLEX_BASE_URL,
@@ -84,7 +85,7 @@ def generate(plex):
                             if (config.ignore and (genre.lower() in map(str.lower, config.ignore))):
                                 continue
                             if (config.replace and (genre.lower() in map(str.lower, config.replace.keys()))):
-                                genre = config.replace[genre]
+                                genre = config.replace[genre.lower()]
                             genre = PLEX_COLLECTION_PREFIX + genre
                             media.addCollection(genre)
 
@@ -102,8 +103,10 @@ def generate(plex):
 
     except KeyboardInterrupt:
         print('\n\nOperation interupted, progress has been saved.')
+    except KeyError as e:
+        print(f'\n\nKeyError: {e}, if this is a replace value in your config, please make it lowercase.')
     except Exception as e:
-        print(f'\n\n{e}')
+        print(f'\n\nUncaught Exception: {e}')
 
     SaveProgress(successfulMedia=successfulMedia, failedMedia=failedMedia)
     return updateCount
