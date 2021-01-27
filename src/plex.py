@@ -8,6 +8,7 @@ from plexapi.myplex import MyPlexAccount, PlexServer
 from src.args import DRY_RUN, LIBRARY, TYPE
 from src.colors import bcolors
 from src.genres import getGenres, sanitizeTitle
+from src.anime import getAnime
 from src.progress import printProgressBar
 from src.setup import (
     PLEX_BASE_URL,
@@ -110,6 +111,21 @@ def generate(plex):
 
     SaveProgress(successfulMedia=successfulMedia, failedMedia=failedMedia)
     return updateCount
+
+def setAnimeRatings(plex):
+    try:
+        library = plex.library.section(LIBRARY).all()
+        total = len(library)
+        printProgressBar(0, total, prefix='Progress:', suffix='Complete', length=50)
+        for i, media in enumerate(library, 1):
+            anime = getAnime(media.title)
+            score = str(anime['score']) if anime['score'] else '0.0'
+            media.rate(score)
+            media.edit(**{'rating.value': score})
+            printProgressBar(i, total, prefix='Progress:', suffix='Complete', length=50)
+        print()
+    except Exception as e:
+        print(e)
 
 def uploadCollectionArt(plex):
     # complete path to the posters directory

@@ -2,8 +2,8 @@
 import re
 from datetime import datetime
 from time import sleep
-
 from src.setup import jikan, movie, tv
+from src.anime import getAnime, getAnimeDetails
 
 
 def sanitizeTitle(title):
@@ -11,32 +11,10 @@ def sanitizeTitle(title):
     return re.sub('\\s(\\(\\d{4}\\))', '', title)
 
 def getAnimeGenres(title):
-    title = title.split(' [')[0]
-    if len(title.split()) > 10:
-        title = " ".join(title.split()[0:10])
-
-    sleep(4) # sleeps 4s
-    query = jikan.search('anime', title, page=1) # search result
-
-    if not query['results']:
-        return []
-    results = []
-    for r in query['results']:
-        if title.lower() in r['title'].lower() and r['start_date']:
-            results.append(r)
-    if results:
-        results = sorted(results, key = lambda i: datetime.strptime(i['start_date'].split('T')[0], '%Y-%m-%d'))
-        for r in results:
-            print(r['title'])
-    else:
-        results = query['results'][:5]
-        results = sorted(results, key = lambda i: i['start_date'])
-    animeId = results[0]['mal_id'] # anime's MyAnimeList ID
-
-    sleep(4)
-
-    anime = jikan.anime(animeId) # all of the anime's info
-    genres = [ e['name'] for e in anime['genres'] ] # list comprehension
+    anime = getAnime(title)
+    animeId = anime['mal_id'] # anime's MyAnimeList ID
+    animeDetails = getAnimeDetails(animeId) # all of the anime's info
+    genres = [ e['name'] for e in animeDetails['genres'] ] # list comprehension
 
     return genres
 

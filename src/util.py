@@ -1,7 +1,8 @@
 import os
-from datetime import datetime
 import json
+from time import sleep
 from re import search
+from datetime import datetime
 from src.colors import bcolors
 from src.args import DRY_RUN, TYPE
 from src.setup import jikan, movie, tv
@@ -24,7 +25,7 @@ def confirm():
             return True
         if response.lower() == 'n':
             return False
-
+    
 def query(q):
     q = QueryObj(q)
     if TYPE == 'anime':
@@ -37,30 +38,29 @@ def query(q):
         if not query['results']:
             print(f'Found 0 results on MyAnimeList for {bcolors.OKCYAN}{q.title}{bcolors.ENDC}')
             return
+        totalResults = len(query['results'])
+        for i, r in enumerate(query['results'], 0):
+            if r['title'].lower() == title.lower():
+                match = r
+                query['results'].pop(i)
+                break
         else:
-            results = []
-            for r in query['results']:
-                if title.lower() in r['title'].lower() and r['start_date']:
-                    results.append(r)
-            totalResults = len(results) if results else len(query['results'])
-            if results:
-                results = sorted(results, key = lambda i: datetime.strptime(i['start_date'].split('T')[0], '%Y-%m-%d'))
-            else:
-                results = query['results'][:5]
-                results = sorted(results, key = lambda i: i['start_date'])
+            match = query['results'][0]
+            query['results'].pop(0)
 
-            print(f'Found {bcolors.WARNING}{totalResults} result(s){bcolors.ENDC} for {bcolors.OKCYAN}{q.title}{bcolors.ENDC}')
-            print(f'Top result: {bcolors.OKGREEN}{results[0]["title"]}{bcolors.ENDC} Released: {results[0]["start_date"].split("-")[0]}')
-            animeId = results[0]['mal_id'] # anime's MyAnimeList ID
-            anime = jikan.anime(animeId) # all of the anime's info
-            genres = [ e['name'] for e in anime['genres'] ] # list comprehension
-            print(f'Genres: {bcolors.OKGREEN}{", ".join(genres)}{bcolors.ENDC}')
-            if len(results) > 1:
-                print(f'\nNext highest matching results...')
-                for i, r in enumerate(results[1:], 0):
-                    print(f'{bcolors.WARNING}{r["title"]}{bcolors.ENDC} Released: {r["start_date"].split("-")[0]}')
-                    if i == 5:
-                        break
+        
+        print(f'Found {bcolors.WARNING}{totalResults} result(s){bcolors.ENDC} for {bcolors.OKCYAN}{q.title}{bcolors.ENDC}')
+        print(f'Top result: {bcolors.OKGREEN}{match["title"]}{bcolors.ENDC} Released: {match["start_date"].split("-")[0]}')
+        animeId = match['mal_id'] # anime's MyAnimeList ID
+        anime = jikan.anime(animeId) # all of the anime's info
+        genres = [ e['name'] for e in anime['genres'] ] # list comprehension
+        print(f'Genres: {bcolors.OKGREEN}{", ".join(genres)}{bcolors.ENDC}')
+        if len(query['results']) > 1:
+            print(f'\nNext highest matching results...')
+            for i, r in enumerate(query['results'], 1):
+                print(f'{bcolors.WARNING}{r["title"]}{bcolors.ENDC} Released: {r["start_date"].split("-")[0]}')
+                if i == 5:
+                    break
     else:
         db = movie if TYPE == 'standard-movie' else tv
         results = db.search(sanitizeTitle(q.title))
