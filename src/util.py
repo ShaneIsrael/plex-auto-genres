@@ -1,8 +1,6 @@
 import os
 import json
-from time import sleep
 from re import search
-from datetime import datetime
 from src.colors import bcolors
 from src.args import DRY_RUN, TYPE
 from src.setup import jikan, movie, tv
@@ -16,6 +14,13 @@ class QueryObj:
 # Jikan fetch requires 2 request with a 4 second sleep on each request
 def getSleepTime(mediaType):
     return 1 if search('^\S*show$|^\S*movie$', mediaType) else 8
+
+def getRatingCollection(rating):
+    if not rating:
+        return None
+    rating = int(round(rating/2))
+    rating = 1 if rating < 1 else rating
+    return f'{rating} Star Rating'
 
 def confirm():
     while True:

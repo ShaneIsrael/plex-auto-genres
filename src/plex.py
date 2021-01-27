@@ -1,13 +1,10 @@
 import math
 import os
-from datetime import datetime
 from re import sub
-
 from plexapi.myplex import MyPlexAccount, PlexServer
-
 from src.args import DRY_RUN, LIBRARY, TYPE
 from src.colors import bcolors
-from src.genres import getGenres, sanitizeTitle
+from src.genres import getGenres
 from src.anime import getAnime
 from src.progress import printProgressBar
 from src.setup import (
@@ -19,7 +16,7 @@ from src.setup import (
     PLEX_USERNAME,
     validateDotEnv
 )
-from src.util import getSleepTime, LoadConfig, LoadProgress, SaveProgress
+from src.util import getSleepTime, getRatingCollection, LoadConfig, LoadProgress, SaveProgress
 
 validateDotEnv(TYPE)
 
@@ -39,8 +36,6 @@ def connectToPlex():
         raise Exception from e
 
     return plex
-
-
 
 def generate(plex):
 
@@ -111,6 +106,26 @@ def generate(plex):
 
     SaveProgress(successfulMedia=successfulMedia, failedMedia=failedMedia)
     return updateCount
+
+def createRatingCollections(plex):
+    try:
+        # plex library
+        library = plex.library.section(LIBRARY).all()
+        totalCount = len(library)
+        printProgressBar(0, totalCount, prefix='Progress:',
+                         suffix='Complete', length=50)
+        for i, media in enumerate(library, 1):
+            collectionName = getRatingCollection(media.rating)
+            if not collectionName:
+                continue
+            media.addCollection(collectionName)
+            printProgressBar(i, totalCount, prefix='Progress:',
+                             suffix='Complete', length=50)
+
+        print(bcolors.OKGREEN + '\nSuccessfully created rating collections for all entries. ' + bcolors.ENDC)
+    except Exception as e:
+        print(f'\n\nUncaught Exception: {e}')
+
 
 def setAnimeRatings(plex):
     try:
