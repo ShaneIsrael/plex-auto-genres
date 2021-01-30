@@ -43,8 +43,7 @@ def generate(plex):
     config = LoadConfig()
     successfulMedia = dataLoad.successfulMedia
     failedMedia = dataLoad.failedMedia
-
-
+    updateCount = 0
     try:
         # plex library
         library = plex.library.section(LIBRARY).all()
@@ -64,7 +63,6 @@ def generate(plex):
         printProgressBar(0, totalCount, prefix='Progress:',
                          suffix='Complete', length=50)
         # i = current media's position
-        updateCount = 0
         for i, media in enumerate(library, 1):
             mediaIdentifier = f'{media.title} ({media.year})'
 
@@ -108,6 +106,9 @@ def generate(plex):
     return updateCount
 
 def createRatingCollections(plex):
+    dataLoad = LoadProgress()
+    successfulRCMedia = dataLoad.successfulRCMedia
+    failedRCMedia = dataLoad.failedRCMedia
     try:
         # plex library
         library = plex.library.section(LIBRARY).all()
@@ -115,32 +116,45 @@ def createRatingCollections(plex):
         printProgressBar(0, totalCount, prefix='Progress:',
                          suffix='Complete', length=50)
         for i, media in enumerate(library, 1):
-            collectionName = getRatingCollection(media.rating)
-            if not collectionName:
-                continue
-            media.addCollection(collectionName)
+            mediaIdentifier = f'{media.title} ({media.year})'
+            if mediaIdentifier not in successfulRCMedia and mediaIdentifier not in failedRCMedia:
+                collectionName = getRatingCollection(media.rating)
+                if not collectionName:
+                    failedRCMedia.append(mediaIdentifier)
+                    continue
+                media.addCollection(collectionName)
+                successfulRCMedia.append(mediaIdentifier)
+
             printProgressBar(i, totalCount, prefix='Progress:',
                              suffix='Complete', length=50)
 
         print(bcolors.OKGREEN + '\nSuccessfully created rating collections for all entries. ' + bcolors.ENDC)
     except Exception as e:
         print(f'\n\nUncaught Exception: {e}')
-
+    
+    SaveProgress(successfulRCMedia=successfulRCMedia, failedRCMedia=failedRCMedia)
 
 def setAnimeRatings(plex):
+    dataLoad = LoadProgress()
+    ratedAnimeMedia = dataLoad.ratedAnimeMedia
     try:
         library = plex.library.section(LIBRARY).all()
         total = len(library)
         printProgressBar(0, total, prefix='Progress:', suffix='Complete', length=50)
         for i, media in enumerate(library, 1):
-            anime = getAnime(media.title)
-            score = str(anime['score']) if anime['score'] else '0.0'
-            media.rate(score)
-            media.edit(**{'rating.value': score})
+            mediaIdentifier = f'{media.title} ({media.year})'
+            if mediaIdentifier not in ratedAnimeMedia:
+                anime = getAnime(media.title)
+                score = str(anime['score']) if anime['score'] else '0.0'
+                media.rate(score)
+                media.edit(**{'rating.value': score})
+                ratedAnimeMedia.append(mediaIdentifier)
             printProgressBar(i, total, prefix='Progress:', suffix='Complete', length=50)
         print()
     except Exception as e:
         print(e)
+
+    SaveProgress(ratedAnimeMedia=ratedAnimeMedia)
 
 def uploadCollectionArt(plex):
     # complete path to the posters directory

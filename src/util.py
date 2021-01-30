@@ -120,6 +120,9 @@ class LoadProgress:
     def __init__(self):
         self.successfulMedia = []
         self.failedMedia = []
+        self.ratedAnimeMedia = []
+        self.successfulRCMedia = []
+        self.failedRCMedia = []
         if not DRY_RUN:
             if not os.path.isdir('./logs'):
                 os.mkdir('./logs')
@@ -129,9 +132,18 @@ class LoadProgress:
             if os.path.isfile(f'logs/plex-{TYPE}-failures.txt'):
                 with open(f'logs/plex-{TYPE}-failures.txt', 'r') as f:
                     self.failedMedia = json.load(f)
+            if os.path.isfile(f'logs/plex-{TYPE}-rc-successful.txt'):
+                with open(f'logs/plex-{TYPE}-rc-successful.txt', 'r') as f:
+                    self.successfulRCMedia = json.load(f)
+            if os.path.isfile(f'logs/plex-{TYPE}-rc-failures.txt'):
+                with open(f'logs/plex-{TYPE}-rc-failures.txt', 'r') as f:
+                    self.failedRCMedia = json.load(f)
+            if os.path.isfile(f'logs/plex-anime-ratings-progress.txt'):
+                with open(f'logs/plex-anime-ratings.txt', 'r') as f:
+                    self.ratedAnimeMedia = json.load(f)
 
 class SaveProgress:
-    def __init__(self, successfulMedia, failedMedia):
+    def __init__(self, successfulMedia=None, failedMedia=None, ratedAnimeMedia=None, successfulRCMedia=None, failedRCMedia=None):
         if not DRY_RUN:
             if not os.path.isdir('./logs'):
                 os.mkdir('./logs')
@@ -141,3 +153,12 @@ class SaveProgress:
             if failedMedia:
                 with open(f'logs/plex-{TYPE}-failures.txt', 'w') as f:
                     json.dump(failedMedia, f)
+            if successfulRCMedia:
+                with open(f'logs/plex-{TYPE}-rc-successful.txt', 'w') as f:
+                    json.dump(successfulRCMedia, f)
+            if failedRCMedia:
+                with open(f'logs/plex-{TYPE}-rc-failures.txt', 'w') as f:
+                    json.dump(failedRCMedia, f)
+            if ratedAnimeMedia:
+                with open(f'logs/plex-anime-ratings-progress.txt', 'w') as f:
+                    json.dump(ratedAnimeMedia, f)

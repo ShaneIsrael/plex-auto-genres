@@ -29,7 +29,6 @@ if not os.path.isfile('config/config.json'):
 with open('config/config.json') as f:
     config = json.load(f)
 
-
 if not os.path.isdir('logs'):
     print(f'Could not find logs directory, expected {os.getcwd()}/logs')
     sys.exit(1)
@@ -42,6 +41,8 @@ for i, run in enumerate(executions, 1):
     TYPE             = run['type']
     SET_POSTERS      = run['setPosters']
     SORT_COLLECTIONS = run['sortCollections']
+    RATE_ANIME       = run['rateAnime']
+    RATING_COLS      = run['createRatingCollections']
 
     start = timer()
 
@@ -56,26 +57,33 @@ for i, run in enumerate(executions, 1):
             file.write(line)
         file.close()
 
+    postProcess = []
     if SET_POSTERS:
-        argumentList.append('--set-posters')
+        postProcess.append('--set-posters')
 
     if SORT_COLLECTIONS:
-        argumentList.append('--sort')
+        postProcess.append('--sort')
+    
+    if RATE_ANIME:
+        postProcess.append('--rate-anime')
 
-    rateLimitSleep(timer() - start)
-    start = timer()
+    if RATING_COLS:
+        postProcess.append('--create-rating-collections')
 
-    if SET_POSTERS or SORT_COLLECTIONS:
-        printWithTimestamp(f'\t> Running post process command(s): setPosters={SET_POSTERS} sortCollections={SORT_COLLECTIONS}...')
-        with Popen(argumentList, stdout=PIPE, stderr=STDOUT) as p, open(LOGFILE, 'ab') as file:
-            for line in p.stdout:
-                file.write(line)
-            file.write(str.encode('\n'))
-            file.close()
+    if postProcess:
+        for command in postProcess:
+            rateLimitSleep(timer() - start)
+            start = timer()
+            printWithTimestamp(f'\t> Running post process command: {command}')
+            plist = argumentList
+            plist.append(command)
+            with Popen(plist, stdout=PIPE, stderr=STDOUT) as p, open(LOGFILE, 'ab') as file:
+                for line in p.stdout:
+                    file.write(line)
+                file.write(str.encode('\n'))
+                file.close()
         printWithTimestamp('\t> Post process command(s) finished...')
-        rateLimitSleep(timer() - start)
     else:
         printWithTimestamp('\t> No post process commands to run, finished...')
-
 
 print()

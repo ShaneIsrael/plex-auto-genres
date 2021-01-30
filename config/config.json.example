@@ -34,25 +34,33 @@
                 "library": "Movies",
                 "type": "standard-movie",
                 "setPosters": false,
-                "sortCollections": false
+                "sortCollections": false,
+                "rateAnime": false,
+                "createRatingCollections": false
             },
             {
                 "library": "Anime Shows",
                 "type": "anime",
                 "setPosters": false,
-                "sortCollections": false
+                "sortCollections": false,
+                "rateAnime": false,
+                "createRatingCollections": false
             },
             {
                 "library": "TV Shows",
                 "type": "standard-tv",
                 "setPosters": false,
-                "sortCollections": false
+                "sortCollections": false,
+                "rateAnime": false,
+                "createRatingCollections": false
             },
             {
                 "library": "some other library",
                 "type": "some other type",
                 "setPosters": "upload cover art located in /posters?",
-                "sortCollections": "add sort prefix to collections sort title?"
+                "sortCollections": "add sort prefix to collections sort title?",
+                "rateAnime": "Will update an anime library with ratings from MyAnimeList (use only on anime librares)",
+                "createRatingCollections": "Will create up to 5 collections (1-5 star system) based on media ratings"
             }
         ]
     }

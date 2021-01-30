@@ -18,7 +18,13 @@ if __name__ == '__main__':
         print(f'\nYou are about to update your {bcolors.WARNING}[{LIBRARY}]{bcolors.ENDC} collection\'s ratings with ratings from MyAnimeList.')
         if NO_PROMPT or confirm():
             setAnimeRatings(plex)
-            sys.exit()
+        sys.exit()
+
+    if RATING_COLS:
+        print(f'\nYou are about to create [{bcolors.WARNING}{TYPE}{bcolors.ENDC}] rating collection tags for the library [{bcolors.WARNING}{LIBRARY}{bcolors.ENDC}] on your server [{bcolors.WARNING}{(PLEX_SERVER_NAME or PLEX_BASE_URL)}{bcolors.ENDC}].')
+        if NO_PROMPT or confirm():
+            createRatingCollections(plex)
+        sys.exit()
 
     if SET_POSTERS:
         print(f'\nYou are about to update your {bcolors.WARNING}[{LIBRARY}]{bcolors.ENDC} collection\'s posters to any matching image titles located at {bcolors.WARNING}posters/{bcolors.ENDC}.')
@@ -31,18 +37,13 @@ if __name__ == '__main__':
             sortCollections(plex, LIBRARY)
 
     if (not SET_POSTERS and not SORT):
-        if RATING_COLS:
-            print(f'\nYou are about to create [{bcolors.WARNING}{TYPE}{bcolors.ENDC}] rating collection tags for the library [{bcolors.WARNING}{LIBRARY}{bcolors.ENDC}] on your server [{bcolors.WARNING}{(PLEX_SERVER_NAME or PLEX_BASE_URL)}{bcolors.ENDC}].')
-            if NO_PROMPT or confirm():
-                createRatingCollections(plex)
-        else:
-            CONFIRMATION = f'\nYou are about to create [{bcolors.WARNING}{TYPE}{bcolors.ENDC}] genre collection tags for the library [{bcolors.WARNING}{LIBRARY}{bcolors.ENDC}] on your server [{bcolors.WARNING}{(PLEX_SERVER_NAME or PLEX_BASE_URL)}{bcolors.ENDC}].'
-            if PLEX_COLLECTION_PREFIX:
-                CONFIRMATION += ' With prefix ['+bcolors.WARNING+PLEX_COLLECTION_PREFIX+bcolors.ENDC+'].'
+        CONFIRMATION = f'\nYou are about to create [{bcolors.WARNING}{TYPE}{bcolors.ENDC}] genre collection tags for the library [{bcolors.WARNING}{LIBRARY}{bcolors.ENDC}] on your server [{bcolors.WARNING}{(PLEX_SERVER_NAME or PLEX_BASE_URL)}{bcolors.ENDC}].'
+        if PLEX_COLLECTION_PREFIX:
+            CONFIRMATION += ' With prefix ['+bcolors.WARNING+PLEX_COLLECTION_PREFIX+bcolors.ENDC+'].'
 
-            print(CONFIRMATION)
-            if NO_PROMPT or confirm():
-                UPDATE_COUNT = generate(plex)
-                print(f'Updated {UPDATE_COUNT} entrie(s) since last run.')
-
+        print(CONFIRMATION)
+        if NO_PROMPT or confirm():
+            UPDATE_COUNT = generate(plex)
+            print(f'Updated {UPDATE_COUNT} entrie(s) since last run.')
+    
     print()

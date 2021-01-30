@@ -56,7 +56,20 @@ else:
 
 
 
-if FORCE and not SET_POSTERS:
+
+if FORCE and RATE_ANIME:
+    if os.path.isfile(f'logs/plex-anime-ratings-progress.txt'):
+        os.remove(f'logs/plex-anime-ratings-progress.txt')
+    if os.path.isfile(f'logs/plex-anime-ratings-progress.txt'):
+        os.remove(f'logs/plex-anime-ratings-progress.txt')
+
+elif FORCE and RATING_COLS:
+    if os.path.isfile(f'logs/plex-{TYPE}-rc-successful.txt'):
+        os.remove(f'logs/plex-{TYPE}-rc-successful.txt')
+    if os.path.isfile(f'logs/plex-{TYPE}-rc-failures.txt'):
+        os.remove(f'logs/plex-{TYPE}-rc-failures.txt')
+        
+elif FORCE:
     if os.path.isfile(f'logs/plex-{TYPE}-successful.txt'):
         os.remove(f'logs/plex-{TYPE}-successful.txt')
     if os.path.isfile(f'logs/plex-{TYPE}-failures.txt'):
