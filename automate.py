@@ -20,7 +20,7 @@ def rateLimitSleep(timeDelta):
     return
 
 def printWithTimestamp(text):
-    print(f'{getTimestamp()}\t{text}')
+    print(f'{getTimestamp()}    {text}')
 
 if not os.path.isfile('config/config.json'):
     print(f'{bcolors.FAIL}No config.json found at {os.getcwd()}/config/config.json')
@@ -45,8 +45,7 @@ for i, run in enumerate(executions, 1):
     RATING_COLS      = run['createRatingCollections']
 
     start = timer()
-    printWithTimestamp(f'{bcolors.OKCYAN}Running [{i}/{len(executions)}] -- library={LIBRARY}, type={TYPE},' +
-        f'setPosters={SET_POSTERS}, sortCollections={SORT_COLLECTIONS} {bcolors.ENDC}')
+    printWithTimestamp(f'{bcolors.OKCYAN}Running [{i}/{len(executions)}] -- library={LIBRARY}, type={TYPE}{bcolors.ENDC}')
 
     argumentList = ['python', 'plex-auto-genres.py', '--library', f'{LIBRARY}', '--type', f'{TYPE}', '--yes', '--no-progress']
 

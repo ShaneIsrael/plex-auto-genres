@@ -139,7 +139,7 @@ class LoadProgress:
                 with open(f'logs/plex-{TYPE}-rc-failures.txt', 'r') as f:
                     self.failedRCMedia = json.load(f)
             if os.path.isfile(f'logs/plex-anime-ratings-progress.txt'):
-                with open(f'logs/plex-anime-ratings.txt', 'r') as f:
+                with open(f'logs/plex-anime-ratings-progress.txt', 'r') as f:
                     self.ratedAnimeMedia = json.load(f)
 
 class SaveProgress:
