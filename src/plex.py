@@ -1,13 +1,10 @@
 import math
 import os
-from datetime import datetime
 from re import sub
-
 from plexapi.myplex import MyPlexAccount, PlexServer
-
 from src.args import DRY_RUN, LIBRARY, TYPE
 from src.colors import bcolors
-from src.genres import getGenres, sanitizeTitle
+from src.genres import getGenres
 from src.anime import getAnime
 from src.progress import printProgressBar
 from src.setup import (
@@ -19,7 +16,7 @@ from src.setup import (
     PLEX_USERNAME,
     validateDotEnv
 )
-from src.util import getSleepTime, LoadConfig, LoadProgress, SaveProgress
+from src.util import getSleepTime, getRatingCollection, LoadConfig, LoadProgress, SaveProgress
 
 validateDotEnv(TYPE)
 
@@ -40,16 +37,13 @@ def connectToPlex():
 
     return plex
 
-
-
 def generate(plex):
 
     dataLoad = LoadProgress()
     config = LoadConfig()
     successfulMedia = dataLoad.successfulMedia
     failedMedia = dataLoad.failedMedia
-
-
+    updateCount = 0
     try:
         # plex library
         library = plex.library.section(LIBRARY).all()
@@ -69,7 +63,6 @@ def generate(plex):
         printProgressBar(0, totalCount, prefix='Progress:',
                          suffix='Complete', length=50)
         # i = current media's position
-        updateCount = 0
         for i, media in enumerate(library, 1):
             mediaIdentifier = f'{media.title} ({media.year})'
 
@@ -112,20 +105,56 @@ def generate(plex):
     SaveProgress(successfulMedia=successfulMedia, failedMedia=failedMedia)
     return updateCount
 
+def createRatingCollections(plex):
+    dataLoad = LoadProgress()
+    successfulRCMedia = dataLoad.successfulRCMedia
+    failedRCMedia = dataLoad.failedRCMedia
+    try:
+        # plex library
+        library = plex.library.section(LIBRARY).all()
+        totalCount = len(library)
+        printProgressBar(0, totalCount, prefix='Progress:',
+                         suffix='Complete', length=50)
+        for i, media in enumerate(library, 1):
+            mediaIdentifier = f'{media.title} ({media.year})'
+            if mediaIdentifier not in successfulRCMedia and mediaIdentifier not in failedRCMedia:
+                collectionName = getRatingCollection(media.rating)
+                if not collectionName:
+                    failedRCMedia.append(mediaIdentifier)
+                    continue
+                media.addCollection(collectionName)
+                successfulRCMedia.append(mediaIdentifier)
+
+            printProgressBar(i, totalCount, prefix='Progress:',
+                             suffix='Complete', length=50)
+
+        print(bcolors.OKGREEN + '\nSuccessfully created rating collections for all entries. ' + bcolors.ENDC)
+    except Exception as e:
+        print(f'\n\nUncaught Exception: {e}')
+    
+    SaveProgress(successfulRCMedia=successfulRCMedia, failedRCMedia=failedRCMedia)
+
 def setAnimeRatings(plex):
+    dataLoad = LoadProgress()
+    ratedAnimeMedia = dataLoad.ratedAnimeMedia
     try:
         library = plex.library.section(LIBRARY).all()
         total = len(library)
         printProgressBar(0, total, prefix='Progress:', suffix='Complete', length=50)
         for i, media in enumerate(library, 1):
-            anime = getAnime(media.title)
-            score = str(anime['score']) if anime['score'] else '0.0'
-            media.rate(score)
-            media.edit(**{'rating.value': score})
+            mediaIdentifier = f'{media.title} ({media.year})'
+            if mediaIdentifier not in ratedAnimeMedia:
+                anime = getAnime(media.title)
+                score = str(anime['score']) if anime['score'] else '0.0'
+                media.rate(score)
+                media.edit(**{'rating.value': score})
+                ratedAnimeMedia.append(mediaIdentifier)
             printProgressBar(i, total, prefix='Progress:', suffix='Complete', length=50)
         print()
     except Exception as e:
         print(e)
+
+    SaveProgress(ratedAnimeMedia=ratedAnimeMedia)
 
 def uploadCollectionArt(plex):
     # complete path to the posters directory
@@ -188,7 +217,7 @@ def sortCollections(plex, library):
 
     for c in sortedCollections:
         c = c.strip().lower()
-        collections = plex.library.section(library).collection(title=c)
+        collections = plex.library.section(library).collections(title=c)
         if (len(collections) > 0):
             collection = collections[0]
             sortTitle = f'{prefix}{collection.title}'

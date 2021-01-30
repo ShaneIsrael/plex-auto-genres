@@ -14,6 +14,7 @@ parser.add_argument('--type', dest='type', action='store', choices=('anime', 'st
 parser.add_argument('--set-posters', help='uploads posters located in posters/<type> of matching collections. Supports (.PNG)', action='store_true')
 parser.add_argument('--sort', help='sort collections by adding the sort prefix character to the collection sort title', action='store_true')
 parser.add_argument('--rate-anime', help='update media ratings with MyAnimeList ratings', action='store_true')
+parser.add_argument('--create-rating-collections', help='sorts media into collections based off rating', action='store_true')
 parser.add_argument('--query', action='store', dest='query', nargs='+', help='Looks up genre and match info for the given media title.')
 parser.add_argument('--dry', help='Do not modify plex collections (debugging feature)', action='store_true')
 parser.add_argument('--no-progress', help='Do not display the live updating progress bar', action='store_true')
@@ -33,6 +34,7 @@ DRY_RUN     = args.dry
 SET_POSTERS = args.set_posters
 SORT        = args.sort
 RATE_ANIME  = args.rate_anime
+RATING_COLS = args.create_rating_collections
 FORCE       = args.force
 NO_PROMPT   = args.yes
 NO_PROGRESS = args.no_progress
@@ -54,7 +56,20 @@ else:
 
 
 
-if FORCE and not SET_POSTERS:
+
+if FORCE and RATE_ANIME:
+    if os.path.isfile(f'logs/plex-anime-ratings-progress.txt'):
+        os.remove(f'logs/plex-anime-ratings-progress.txt')
+    if os.path.isfile(f'logs/plex-anime-ratings-progress.txt'):
+        os.remove(f'logs/plex-anime-ratings-progress.txt')
+
+elif FORCE and RATING_COLS:
+    if os.path.isfile(f'logs/plex-{TYPE}-rc-successful.txt'):
+        os.remove(f'logs/plex-{TYPE}-rc-successful.txt')
+    if os.path.isfile(f'logs/plex-{TYPE}-rc-failures.txt'):
+        os.remove(f'logs/plex-{TYPE}-rc-failures.txt')
+        
+elif FORCE:
     if os.path.isfile(f'logs/plex-{TYPE}-successful.txt'):
         os.remove(f'logs/plex-{TYPE}-successful.txt')
     if os.path.isfile(f'logs/plex-{TYPE}-failures.txt'):
