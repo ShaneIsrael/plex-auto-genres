@@ -217,7 +217,7 @@ def sortCollections(plex, library):
 
     for c in sortedCollections:
         c = c.strip().lower()
-        collections = plex.library.section(library).collection(title=c)
+        collections = plex.library.section(library).collections(title=c)
         if (len(collections) > 0):
             collection = collections[0]
             sortTitle = f'{prefix}{collection.title}'
