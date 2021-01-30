@@ -45,8 +45,8 @@ for i, run in enumerate(executions, 1):
     RATING_COLS      = run['createRatingCollections']
 
     start = timer()
-
-    printWithTimestamp(f'{bcolors.OKCYAN}Running [{i}/{len(executions)}] -- library={LIBRARY}, type={TYPE}, setPosters={SET_POSTERS}, sortCollections={SORT_COLLECTIONS} {bcolors.ENDC}')
+    printWithTimestamp(f'{bcolors.OKCYAN}Running [{i}/{len(executions)}] -- library={LIBRARY}, type={TYPE},' +
+        f'setPosters={SET_POSTERS}, sortCollections={SORT_COLLECTIONS} {bcolors.ENDC}')
 
     argumentList = ['python', 'plex-auto-genres.py', '--library', f'{LIBRARY}', '--type', f'{TYPE}', '--yes', '--no-progress']
 
@@ -63,7 +63,7 @@ for i, run in enumerate(executions, 1):
 
     if SORT_COLLECTIONS:
         postProcess.append('--sort')
-    
+
     if RATE_ANIME:
         postProcess.append('--rate-anime')
 

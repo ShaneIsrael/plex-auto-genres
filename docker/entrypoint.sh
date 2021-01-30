@@ -8,8 +8,8 @@ then
 fi
 
 # generate collections once on container start
-python3 /automate.py
+python3 -u /automate.py
 
 echo "Creating cron process, this script will now run nightly while this container is up."
-# start crond in foreground
+# # start crond in foreground
 exec crond -f
