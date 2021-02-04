@@ -12,6 +12,6 @@ COPY docker/entrypoint.sh /
 
 RUN pip3 install -r requirements.txt
 RUN chmod +x /entrypoint.sh
-RUN echo "0 1 * * * python3 /automate.py" > /etc/crontabs/root
+RUN echo "0 1 * * * cd / && python3 /automate.py" > /etc/crontabs/root
 
 ENTRYPOINT ["/entrypoint.sh"]
