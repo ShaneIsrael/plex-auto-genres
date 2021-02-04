@@ -33,7 +33,7 @@ def connectToPlex():
             raise Exception(
                 "No valid credentials found. See the README for more details.")
     except Exception as e:
-        raise Exception from e
+        print(f'\n\nUncaught Exception: {e}')
 
     return plex
 
@@ -145,10 +145,11 @@ def setAnimeRatings(plex):
             mediaIdentifier = f'{media.title} ({media.year})'
             if mediaIdentifier not in ratedAnimeMedia:
                 anime = getAnime(media.title)
-                score = str(anime['score']) if anime['score'] else '0.0'
-                media.rate(score)
-                media.edit(**{'rating.value': score})
-                ratedAnimeMedia.append(mediaIdentifier)
+                score = str(anime['score']) if anime['score'] else None
+                if score:
+                    media.rate(score)
+                    media.edit(**{'rating.value': score})
+                    ratedAnimeMedia.append(mediaIdentifier)
             printProgressBar(i, total, prefix='Progress:', suffix='Complete', length=50)
         print()
     except Exception as e:
