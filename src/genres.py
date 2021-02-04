@@ -1,8 +1,7 @@
 #pylint: disable=no-member
 import re
-from datetime import datetime
 from time import sleep
-from src.setup import jikan, movie, tv
+from src.setup import movie, tv
 from src.anime import getAnime, getAnimeDetails
 
 
