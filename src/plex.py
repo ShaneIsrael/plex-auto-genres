@@ -141,6 +141,7 @@ def setAnimeRatings(plex):
         library = plex.library.section(LIBRARY).all()
         total = len(library)
         printProgressBar(0, total, prefix='Progress:', suffix='Complete', length=50)
+        updateCount = 0
         for i, media in enumerate(library, 1):
             mediaIdentifier = f'{media.title} ({media.year})'
             if mediaIdentifier not in ratedAnimeMedia:
@@ -150,8 +151,9 @@ def setAnimeRatings(plex):
                     media.rate(score)
                     media.edit(**{'rating.value': score})
                     ratedAnimeMedia.append(mediaIdentifier)
+                    updateCount += 1
             printProgressBar(i, total, prefix='Progress:', suffix='Complete', length=50)
-        print()
+        print(f'Finished updating ratings. {updateCount} item(s) were updated.')
     except Exception as e:
         print(e)
 

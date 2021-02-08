@@ -4,6 +4,7 @@ import json
 import math
 import time
 import datetime
+import numpy as np
 from timeit import default_timer as timer
 from subprocess import Popen, PIPE, STDOUT
 from src.colors import bcolors
@@ -74,8 +75,9 @@ for i, run in enumerate(executions, 1):
             rateLimitSleep(timer() - start)
             start = timer()
             printWithTimestamp(f'\t> Running post process command: {command}')
-            plist = argumentList
-            plist.append(command)
+            plist = np.empty_like(argumentList)
+            plist[:] = argumentList
+            plist = np.append(plist, command)
             with Popen(plist, stdout=PIPE, stderr=STDOUT) as p, open(LOGFILE, 'ab') as file:
                 for line in p.stdout:
                     file.write(line)
