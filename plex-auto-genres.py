@@ -14,6 +14,9 @@ if __name__ == '__main__':
         sys.exit()
 
     plex = connectToPlex()
+    if not plex:
+        sys.exit()
+        
     if RATE_ANIME:
         print(f'\nYou are about to update your {bcolors.WARNING}[{LIBRARY}]{bcolors.ENDC} collection\'s ratings with ratings from MyAnimeList.')
         if NO_PROMPT or confirm():

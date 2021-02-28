@@ -23,6 +23,7 @@ validateDotEnv(TYPE)
 
 def connectToPlex():
     print('\nConnecting to Plex...')
+    plex = None
     try:
         if PLEX_USERNAME is not None and PLEX_PASSWORD is not None and PLEX_SERVER_NAME is not None:
             account = MyPlexAccount(PLEX_USERNAME, PLEX_PASSWORD)
@@ -148,6 +149,7 @@ def setAnimeRatings(plex):
                 anime = getAnime(media.title)
                 score = str(anime['score']) if anime['score'] else None
                 if score:
+                    print(f'{mediaIdentifier} -- {score}')
                     media.rate(score)
                     media.edit(**{'rating.value': score})
                     ratedAnimeMedia.append(mediaIdentifier)

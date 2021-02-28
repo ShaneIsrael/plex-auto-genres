@@ -59,11 +59,13 @@ def query(q):
         animeId = match['mal_id'] # anime's MyAnimeList ID
         anime = jikan.anime(animeId) # all of the anime's info
         genres = [ e['name'] for e in anime['genres'] ] # list comprehension
+        score = anime['score']
         print(f'Genres: {bcolors.OKGREEN}{", ".join(genres)}{bcolors.ENDC}')
+        print(f'MyAnimeList Score: {bcolors.OKGREEN}{score}/10{bcolors.ENDC}')
         if len(query['results']) > 1:
             print(f'\nNext highest matching results...')
             for i, r in enumerate(query['results'], 1):
-                print(f'{bcolors.WARNING}{r["title"]}{bcolors.ENDC} Released: {r["start_date"].split("-")[0]}')
+                print(f'{bcolors.WARNING}{r["title"]}{bcolors.ENDC} Released: {r["start_date"].split("-")[0] if r["start_date"] else "N/A"}')
                 if i == 5:
                     break
     else:
