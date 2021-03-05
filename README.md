@@ -40,11 +40,14 @@ If your anime shows and standard tv shows are in the same library, you can still
 2. Run `python3 -m pip install -r requirements.txt` to install the required dependencies.
 3. Rename the `.env.example` file to `.env`
 4. Rename the `config/config.json.example` file to `config/config.json`. The default settings are probably fine.
-5. Edit the `.env` file and set your plex username, password, and server name. If you are generating collections for standard media (non anime) you will need to also obtain an [TMDB Api Key](https://developers.themoviedb.org/3/getting-started/introduction) (for movies and tv shows) 
+5. Edit the `.env` file and select your authentication method. 
+- Username & Password (Required for 2-Factor Authentication protected accounts)
+- [Plex Token](https://support.plex.tv/articles/204059436-finding-an-authentication-token-x-plex-token/)
+6. If you are generating collections for standard media (non anime) you will need to also obtain an [TMDB Api Key](https://developers.themoviedb.org/3/getting-started/introduction) (for movies and tv shows) 
     |Variable|Authentication method|Value|
     |---|---|---|
-    |PLEX_USERNAME|Username and password|Your Plex Username|
-    |PLEX_PASSWORD|Username and password|Your Plex Password|
+    |PLEX_USERNAME|Username & password|Your Plex Username|
+    |PLEX_PASSWORD|Username & password|Your Plex Password|
     |PLEX_SERVER_NAME|Username and password|Your Plex Server Name|
     |PLEX_BASE_URL|Token|Your Plex Server base URL|
     |PLEX_TOKEN|Token|Your Plex Token|
