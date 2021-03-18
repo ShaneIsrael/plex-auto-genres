@@ -119,7 +119,13 @@ def createRatingCollections(plex):
         for i, media in enumerate(library, 1):
             mediaIdentifier = f'{media.title} ({media.year})'
             if mediaIdentifier not in successfulRCMedia and mediaIdentifier not in failedRCMedia:
-                collectionName = getRatingCollection(media.rating)
+                if (TYPE == 'anime'):
+                    anime = getAnime(media.title)
+                    score = anime['score'] if anime['score'] else None
+                    collectionName = getRatingCollection(score)
+                else:
+                    collectionName = getRatingCollection(media.rating)
+
                 if not collectionName:
                     failedRCMedia.append(mediaIdentifier)
                     continue
