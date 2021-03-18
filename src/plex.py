@@ -204,7 +204,7 @@ def uploadCollectionArt(plex):
         # If it doesn't, print 404
         else:
             print(f'No poster found for collection {bcolors.WARNING}{title}{bcolors.ENDC}, expected {bcolors.WARNING}'
-                + sub(f'^{os.getcwd()}', '', posterPath) + f'{bcolors.ENDC}.')
+                + f'/posters/{TYPE}/{title.lower().replace(" ", "-")}.png{bcolors.ENDC}.')
 
     return
 
