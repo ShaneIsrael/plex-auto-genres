@@ -1,4 +1,5 @@
 #pylint: disable=no-member
+from logging import error
 import re
 from time import sleep
 from src.setup import movie, tv
@@ -36,6 +37,9 @@ def getStandardGenres(title, mediaType):
         return genres
 
     except Exception as e:
+        if ('Invalid API key' in str(e)):
+            raise Exception('Invalid API key: Your TMDB API Key is invalid. ' +
+                'See README for info on setting your TMDB key.') from e
         print(f'\n\n{str(e)}, when searching for entry: {title}, of type {mediaType}.')
         print('This entry has been added to the failures.txt - once the issue is corrected in your library remove it from there and try again.')
         return []

@@ -97,11 +97,11 @@ def generate(plex):
                 bcolors.ENDC + f'See logs/plex-{TYPE}-successful.txt.')
 
     except KeyboardInterrupt:
-        print('\n\nOperation interupted, progress has been saved.')
+        print(bcolors.WARNING + '\n\nOperation interupted, progress has been saved.' + bcolors.ENDC)
     except KeyError as e:
-        print(f'\n\nKeyError: {e}, if this is a replace value in your config, please make it lowercase.')
+        print(bcolors.FAIL + f'\n\nKeyError: {e}, if this is a replace value in your config, please make it lowercase.' + bcolors.ENDC)
     except Exception as e:
-        print(f'\n\nUncaught Exception: {e}')
+        print(bcolors.FAIL + f'\n\nUncaught Exception: {e}' + bcolors.ENDC)
 
     SaveProgress(successfulMedia=successfulMedia, failedMedia=failedMedia)
     return updateCount
