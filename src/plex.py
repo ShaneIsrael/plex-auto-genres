@@ -176,7 +176,7 @@ def uploadCollectionArt(plex):
         print(bcolors.FAIL + f'Could not find poster art directory. Expected location: {postersDir}.' + bcolors.ENDC)
         return
 
-    collections = plex.library.section(LIBRARY).collection()
+    collections = plex.library.section(LIBRARY).collections()
 
     # if there are no collections (same as len(collections) == 0)
     if not collections:
