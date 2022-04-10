@@ -20,7 +20,6 @@ from src.util import getSleepTime, getRatingCollection, LoadConfig, LoadProgress
 
 validateDotEnv(TYPE)
 
-
 def connectToPlex():
     print('\nConnecting to Plex...')
     plex = None
