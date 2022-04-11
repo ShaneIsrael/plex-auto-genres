@@ -2,6 +2,7 @@ FROM python:3.9-alpine
 
 RUN apk add --no-cache \
     gcc \
+    g++ \
     musl-dev
 
 COPY plex-auto-genres.py /
