@@ -3,8 +3,9 @@ import json
 from re import search
 from src.colors import bcolors
 from src.args import DRY_RUN, TYPE
-from src.setup import jikan, movie, tv
+from src.setup import movie, tv
 from src.genres import getGenres, sanitizeTitle
+from src.anime import searchAnime, getAnimeById
 
 class QueryObj:
     def __init__(self, title):
@@ -38,34 +39,34 @@ def query(q):
         if len(title.split()) > 10:
             title = " ".join(title.split()[0:10])
 
-        query = jikan.search('anime', title, page=1) # search result
+        query = searchAnime(title)
 
-        if not query['results']:
+        if query['pagination']['items']['total'] == 0:
             print(f'Found 0 results on MyAnimeList for {bcolors.OKCYAN}{q.title}{bcolors.ENDC}')
             return
-        totalResults = len(query['results'])
-        for i, r in enumerate(query['results'], 0):
+        totalResults = len(query['data'])
+        for i, r in enumerate(query['data'], 0):
             if r['title'].lower() == title.lower():
                 match = r
-                query['results'].pop(i)
+                query['data'].pop(i)
                 break
         else:
-            match = query['results'][0]
-            query['results'].pop(0)
+            match = query['data'][0]
+            query['data'].pop(0)
 
         
         print(f'Found {bcolors.WARNING}{totalResults} result(s){bcolors.ENDC} for {bcolors.OKCYAN}{q.title}{bcolors.ENDC}')
-        print(f'Top result: {bcolors.OKGREEN}{match["title"]}{bcolors.ENDC} Released: {match["start_date"].split("-")[0]}')
+        print(f'Top result: {bcolors.OKGREEN}{match["title"]}{bcolors.ENDC} Aired: {match["aired"]["string"]}')
         animeId = match['mal_id'] # anime's MyAnimeList ID
-        anime = jikan.anime(animeId) # all of the anime's info
+        anime = getAnimeById(animeId) # all of the anime's info
         genres = [ e['name'] for e in anime['genres'] ] # list comprehension
         score = anime['score']
         print(f'Genres: {bcolors.OKGREEN}{", ".join(genres)}{bcolors.ENDC}')
         print(f'MyAnimeList Score: {bcolors.OKGREEN}{score}/10{bcolors.ENDC}')
-        if len(query['results']) > 1:
+        if len(query['data']) > 1:
             print(f'\nNext highest matching results...')
-            for i, r in enumerate(query['results'], 1):
-                print(f'{bcolors.WARNING}{r["title"]}{bcolors.ENDC} Released: {r["start_date"].split("-")[0] if r["start_date"] else "N/A"}')
+            for i, r in enumerate(query['data'], 1):
+                print(f'{bcolors.WARNING}{r["title"]}{bcolors.ENDC} Aired: {r["aired"]["string"]}')
                 if i == 5:
                     break
     else:

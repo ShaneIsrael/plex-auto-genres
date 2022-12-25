@@ -3,7 +3,6 @@ import sys
 import signal
 from re import search
 from dotenv import load_dotenv
-from jikanpy import Jikan
 from tmdbv3api import TV, Movie, TMDb
 from src.colors import bcolors
 
@@ -17,7 +16,6 @@ PLEX_TOKEN = os.getenv("PLEX_TOKEN")
 PLEX_COLLECTION_PREFIX = os.getenv("PLEX_COLLECTION_PREFIX", "")
 TMDB_API_KEY = os.getenv("TMDB_API_KEY")
 
-jikan = Jikan()
 tmdb = TMDb()
 movie = Movie()
 tv = TV()

@@ -1,4 +1,4 @@
-jikanpy
+requests
 plexapi
 python-dotenv
 numpy

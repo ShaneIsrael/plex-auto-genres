@@ -1,5 +1,15 @@
 from time import sleep
-from src.setup import jikan
+import requests
+
+JIKAN_URL = 'https://api.jikan.moe/v4'
+
+def searchAnime(title):
+    query = requests.get(f'{JIKAN_URL}/anime', params={'q': title})
+    return query.json()
+
+def getAnimeById(id):
+    query = requests.get(f'{JIKAN_URL}/anime/{id}')
+    return query.json()['data']
 
 def getAnime(title):
     title = title.split(' [')[0]
@@ -7,18 +17,18 @@ def getAnime(title):
         title = " ".join(title.split()[0:10])
 
     sleep(4)
-    query = jikan.search('anime', title)
-    if not query['results']:
+    query = searchAnime(title)
+    if query['pagination']['items']['total'] == 0:
         return None
-    for r in query['results']:
+    for r in query['data']:
         if r['title'].lower() == title.lower():
             match = r
             break
     else:
-        match = query['results'][0]
+        match = query['data'][0]
 
     return match
 
 def getAnimeDetails(malId):
     sleep(4)
-    return jikan.anime(malId)
+    return getAnimeById(malId)
