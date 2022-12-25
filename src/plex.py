@@ -120,7 +120,8 @@ def createRatingCollections(plex):
             if mediaIdentifier not in successfulRCMedia and mediaIdentifier not in failedRCMedia:
                 if (TYPE == 'anime'):
                     anime = getAnime(media.title)
-                    score = anime['score'] if anime['score'] else None
+                    if anime is not None:
+                        score = anime['score'] if anime['score'] else None
                     collectionName = getRatingCollection(score)
                 else:
                     collectionName = getRatingCollection(media.rating)
@@ -152,7 +153,8 @@ def setAnimeRatings(plex):
             mediaIdentifier = f'{media.title} ({media.year})'
             if mediaIdentifier not in ratedAnimeMedia:
                 anime = getAnime(media.title)
-                score = str(anime['score']) if anime['score'] else None
+                if anime is not None:
+                    score = str(anime['score']) if anime['score'] else None
                 if score:
                     print(f'{mediaIdentifier} -- {score}')
                     media.rate(score)
