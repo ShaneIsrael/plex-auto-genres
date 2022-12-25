@@ -50,10 +50,6 @@ def query(q):
                 match = r
                 query['data'].pop(i)
                 break
-        else:
-            match = query['data'][0]
-            query['data'].pop(0)
-
         
         print(f'Found {bcolors.WARNING}{totalResults} result(s){bcolors.ENDC} for {bcolors.OKCYAN}{q.title}{bcolors.ENDC}')
         print(f'Top result: {bcolors.OKGREEN}{match["title"]}{bcolors.ENDC} Aired: {match["aired"]["string"]}')

@@ -12,11 +12,12 @@ def sanitizeTitle(title):
 
 def getAnimeGenres(title):
     anime = getAnime(title)
-    animeId = anime['mal_id'] # anime's MyAnimeList ID
-    animeDetails = getAnimeDetails(animeId) # all of the anime's info
-    genres = [ e['name'] for e in animeDetails['genres'] ] # list comprehension
-
-    return genres
+    if anime is not None:
+        animeId = anime['mal_id'] # anime's MyAnimeList ID
+        animeDetails = getAnimeDetails(animeId) # all of the anime's info
+        genres = [ e['name'] for e in animeDetails['genres'] ] # list comprehension
+        return genres
+    return []
 
 def getStandardGenres(title, mediaType):
     try:
