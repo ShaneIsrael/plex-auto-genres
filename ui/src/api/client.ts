@@ -1,16 +1,21 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import type {
+  BindingIn,
   BindingView,
+  CandidateView,
   ConfigDocument,
   ConfigView,
   DoctorReport,
   Health,
+  ItemStatusFilter,
+  ItemsPage,
   JobEvent,
   JobProgress,
   JobStatus,
   JobView,
   LibraryView,
+  MediaType,
   Problem,
   RunOptions,
   RunView,
@@ -73,11 +78,11 @@ async function post<T>(path: string, body?: unknown): Promise<T> {
   return (await response.json()) as T;
 }
 
-async function send<T>(method: "PUT" | "POST", path: string, body: unknown, headers: Record<string, string> = {}): Promise<T> {
+async function send<T>(method: "PUT" | "POST" | "DELETE", path: string, body: unknown, headers: Record<string, string> = {}): Promise<T> {
   const response = await fetch(new URL(path, window.location.origin), {
     method,
-    headers: { Accept: "application/json", "Content-Type": "application/json", ...headers },
-    body: JSON.stringify(body),
+    headers: { Accept: "application/json", ...(body === undefined ? {} : { "Content-Type": "application/json" }), ...headers },
+    body: body === undefined ? undefined : JSON.stringify(body),
   });
   if (!response.ok) {
     let problem: Problem = { title: response.statusText || "Request failed", status: response.status };
@@ -94,8 +99,38 @@ async function send<T>(method: "PUT" | "POST", path: string, body: unknown, head
   return (await response.json()) as T;
 }
 
+export interface ItemsQuery {
+  page?: number;
+  size?: number;
+  q?: string;
+  status?: ItemStatusFilter;
+  refresh?: boolean;
+}
+
 export const api = {
   health: () => get<Health>("/api/v1/health"),
+  items: (library: string, query: ItemsQuery = {}) =>
+    get<ItemsPage>(`/api/v1/libraries/${encodeURIComponent(library)}/items`, {
+      page: query.page,
+      size: query.size,
+      q: query.q,
+      status: query.status,
+      refresh: query.refresh ? "1" : undefined,
+    }),
+  forgetItem: (library: string, mediaKey: string) =>
+    send<{ forgotten: boolean }>("POST", `/api/v1/libraries/${encodeURIComponent(library)}/items/forget?media_key=${encodeURIComponent(mediaKey)}`, undefined),
+  search: (params: { q: string; type: MediaType; provider?: string; year?: number | null; limit?: number }) =>
+    get<CandidateView[]>("/api/v1/search", {
+      q: params.q,
+      type: params.type,
+      provider: params.provider,
+      year: params.year ?? undefined,
+      limit: params.limit,
+    }),
+  createBinding: (body: BindingIn) => send<BindingView>("POST", "/api/v1/bindings", body),
+  deleteBinding: (library: string, mediaKey: string) =>
+    send<{ removed: boolean }>("DELETE", `/api/v1/bindings?library=${encodeURIComponent(library)}&media_key=${encodeURIComponent(mediaKey)}`, undefined),
+  thumbUrl: (path: string | null) => (path ? `/api/v1/plex/thumb?path=${encodeURIComponent(path)}` : null),
   validateConfig: (doc: ConfigDocument) => send<ValidationResult>("POST", "/api/v1/config/validate", doc),
   saveConfig: (doc: ConfigDocument, etag: string | null) =>
     send<SaveResult>("PUT", "/api/v1/config", doc, etag ? { "If-Match": etag } : {}),
@@ -332,5 +367,54 @@ export function useSaveConfig() {
       void qc.invalidateQueries({ queryKey: ["doctor"] });
       void qc.invalidateQueries({ queryKey: ["libraries"] });
     },
+  });
+}
+
+// -- library browser -----------------------------------------------------------
+
+export const useLibraryItems = (library: string, query: ItemsQuery) =>
+  useQuery({
+    queryKey: ["items", library, query.page ?? 1, query.size ?? 50, query.q ?? "", query.status ?? "all"],
+    queryFn: () => api.items(library, query),
+    enabled: Boolean(library),
+    placeholderData: (prev) => prev,
+  });
+
+export const useCandidates = (params: { q: string; type: MediaType; provider?: string; year?: number | null } | null) =>
+  useQuery({
+    queryKey: ["candidates", params?.q ?? "", params?.type ?? "", params?.provider ?? "", params?.year ?? ""],
+    queryFn: () => api.search(params!),
+    enabled: Boolean(params && params.q.trim()),
+    staleTime: 5 * 60_000,
+    retry: false,
+  });
+
+function useInvalidateItems() {
+  const qc = useQueryClient();
+  return () => {
+    void qc.invalidateQueries({ queryKey: ["items"] });
+    void qc.invalidateQueries({ queryKey: ["bindings"] });
+    void qc.invalidateQueries({ queryKey: ["libraries"] });
+  };
+}
+
+export function useCreateBinding() {
+  const invalidate = useInvalidateItems();
+  return useMutation({ mutationFn: (body: BindingIn) => api.createBinding(body), onSuccess: invalidate });
+}
+
+export function useDeleteBinding() {
+  const invalidate = useInvalidateItems();
+  return useMutation({
+    mutationFn: ({ library, mediaKey }: { library: string; mediaKey: string }) => api.deleteBinding(library, mediaKey),
+    onSuccess: invalidate,
+  });
+}
+
+export function useForgetItem() {
+  const invalidate = useInvalidateItems();
+  return useMutation({
+    mutationFn: ({ library, mediaKey }: { library: string; mediaKey: string }) => api.forgetItem(library, mediaKey),
+    onSuccess: invalidate,
   });
 }

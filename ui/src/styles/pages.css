@@ -480,3 +480,12 @@ a.list__main:hover {
 .rules p {
   margin-top: 6px;
 }
+
+.card__titlelink {
+  color: var(--ink);
+}
+
+.card__titlelink:hover {
+  color: var(--amber-ink);
+  text-decoration: none;
+}

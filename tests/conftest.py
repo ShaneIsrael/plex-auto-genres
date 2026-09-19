@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from plex_auto_genres.models import ExternalId, MediaItem
@@ -79,3 +81,18 @@ def item() -> MediaItem:
         current_collections=[],
         handle=handle,
     )
+
+
+@pytest.fixture
+def config_file(tmp_path):
+    """A small v2 config on disk, shared by the API test modules."""
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps({
+        "version": 2,
+        "defaults": {"anime": {"ignore": ["Kids"]}},
+        "libraries": [
+            {"library": "Animes", "type": "anime", "useGenres": True, "clearGenres": True},
+            {"library": "Films", "type": "standard-movie", "enabled": False},
+        ],
+    }))
+    return path

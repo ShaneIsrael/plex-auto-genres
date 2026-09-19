@@ -320,9 +320,39 @@ Decisions taken, one of them a deliberate departure from this document:
   draft follows the file when it changes on disk.
 - Running jobs keep the config they started with; queued ones pick up the new one.
 
-### Phase 4 — next
+### Phase 4 — done
 
-Library browser with pagination (`fetchItems` already takes `container_start` /
-`container_size`), joined against `media_state` and `bindings` so each row shows how it
-matched; provider *candidate* search (the providers already fetch the alternatives that
-`pick_best` throws away); bindings create/delete from that browser. Then auth.
+Shipped: `GET /libraries/{name}/items`, `GET /search`, `POST`/`DELETE /bindings`,
+`POST /libraries/{name}/items/forget`, a poster proxy, and the item browser with its
+binding picker.
+
+Decisions taken:
+
+- **Filter in-process, not in Plex.** The filters that matter — failed, not yet run,
+  bound — live in our database, so Plex's own paging cannot serve them. The server
+  reads the whole library once (a handful of paged requests), caches it for a minute,
+  and joins it against `media_state` and `bindings` with one query each. Search and
+  paging are then instant, and "Refresh" bypasses the cache.
+- **Match provenance is derived per row**: a binding beats a usable GUID, which beats a
+  title search. "Usable" means a scheme one of the library's providers resolves
+  directly (`GUID_SCHEMES`, read from the provider classes), plus `anidb` for anime
+  because the mapping table translates it.
+- **Candidates are the ranking `pick_best` already computed.** `rank_candidates` is the
+  same scoring, returned whole instead of `[0]`, with poster, synopsis excerpt, score and
+  genres pulled from the search payloads the providers were already fetching. AniList's
+  query grew `coverImage` and `description`.
+- **Posters are proxied.** `/api/v1/plex/thumb?path=` fetches with the server's token and
+  only accepts `/library/…` paths, so the token never reaches the browser and the
+  endpoint is not an open proxy.
+- **A binding invalidates the cached match, in both directions.** Creating one drops the
+  automatic result; removing one drops the result that was produced through it. The
+  next run re-resolves either way. The browser also offers *forget* on any cached row.
+- **Item keys are the pipeline's own** (`media_key`: GUID first, else title + year),
+  exposed as-is, so the CLI's `bind` and the UI address the same thing.
+
+### Phase 5 — next
+
+Authentication: a single app password (`PAG_WEB_PASSWORD`), a session cookie, refuse to
+start on `0.0.0.0` without it unless `PAG_WEB_INSECURE=1`. No user accounts. Then decide
+where secrets should live if they are ever to be edited from the UI, and only then bulk
+field editing beyond genres.

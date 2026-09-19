@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 import httpx
 
 from ..errors import ProviderError, ProviderNotFound, ProviderRateLimited
-from ..models import ExternalId, MediaType, ProviderResult
+from ..models import Candidate, ExternalId, MediaType, ProviderResult
 from ..ratelimit import CompositeLimiter
 
 log = logging.getLogger(__name__)
@@ -149,6 +149,10 @@ class Provider(abc.ABC):
     async def search(self, request: LookupRequest) -> ProviderResult:
         """Resolve by title. Raises :class:`ProviderNotFound` when nothing matches."""
 
+    @abc.abstractmethod
+    async def search_candidates(self, request: LookupRequest, limit: int = 8) -> list[Candidate]:
+        """The ranked alternatives a human could pick from. Empty when none."""
+
     async def resolve(self, request: LookupRequest) -> ProviderResult:
         """Preferred path first: pinned binding, then GUID, then title search.
 
@@ -169,18 +173,17 @@ class Provider(abc.ABC):
         return await self.search(request)
 
 
-def pick_best(
+def rank_candidates(
     candidates: list[tuple[str, int | None, object]],
     title: str,
     year: int | None,
-) -> object | None:
-    """Choose the closest candidate by title equality then year proximity.
+) -> list[object]:
+    """Order candidates by title equality, then year proximity, best first.
 
     v1 took ``results[0]`` unconditionally. Using the year Plex already knows
-    removes most of the mismatches that produced nonsense genres.
+    removes most of the mismatches that produced nonsense genres. The full
+    ranking is what a human sees when picking a binding by hand.
     """
-    if not candidates:
-        return None
     target = _normalise(title)
 
     def score(entry: tuple[str, int | None, object]) -> tuple[int, int]:
@@ -194,7 +197,28 @@ def pick_best(
             year_score = year_score if year_score <= 2 else 50 + year_score
         return name_score, year_score
 
-    return min(candidates, key=score)[2]
+    return [entry[2] for entry in sorted(candidates, key=score)]
+
+
+def pick_best(
+    candidates: list[tuple[str, int | None, object]],
+    title: str,
+    year: int | None,
+) -> object | None:
+    """The single closest candidate, or ``None``."""
+    ranked = rank_candidates(candidates, title, year)
+    return ranked[0] if ranked else None
+
+
+def short(text: str | None, limit: int = 240) -> str | None:
+    """Trim a synopsis to a card-sized excerpt at a word boundary."""
+    if not text:
+        return None
+    text = " ".join(text.split())
+    if len(text) <= limit:
+        return text
+    cut = text[:limit].rsplit(" ", 1)[0]
+    return cut + "…"
 
 
 def _normalise(value: str) -> str:

@@ -228,3 +228,74 @@ class SaveResult(BaseModel):
     path: str
     backup: str | None = None
     errors: list[ValidationIssue] = Field(default_factory=list)
+
+
+MatchSource = Literal["binding", "guid", "search"]
+
+
+class ItemState(BaseModel):
+    """What the cache remembers about one item."""
+
+    status: Literal["ok", "failed"]
+    provider: str | None = None
+    provider_id: str | None = None
+    genres: list[str] = Field(default_factory=list)
+    attempts: int = 0
+    last_error: str | None = None
+    updated_at: float
+
+
+class ItemView(BaseModel):
+    """One library item, joined with how it matched and what was written."""
+
+    rating_key: int
+    media_key: str
+    title: str
+    year: int | None = None
+    thumb: str | None = Field(default=None, description="Proxied poster path, or null.")
+    guids: list[str] = Field(default_factory=list)
+    match: MatchSource
+    binding: BindingView | None = None
+    state: ItemState | None = None
+    current_genres: list[str] = Field(default_factory=list)
+    current_collections: list[str] = Field(default_factory=list)
+
+
+class ItemsPage(BaseModel):
+    """A page of a library's items."""
+
+    library: str
+    total: int
+    page: int
+    size: int
+    counts: dict[str, int] = Field(
+        default_factory=dict,
+        description="all / ok / failed / unprocessed / bound, over the whole library.",
+    )
+    items: list[ItemView]
+
+
+class CandidateView(BaseModel):
+    """A provider's suggestion for a title."""
+
+    provider: str
+    provider_id: str
+    title: str
+    year: int | None = None
+    url: str | None = None
+    image: str | None = None
+    synopsis: str | None = None
+    score: float | None = None
+    genres: list[str] = Field(default_factory=list)
+
+
+class BindingIn(BaseModel):
+    """Pin an item to a provider id."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    library: str = Field(min_length=1)
+    media_key: str = Field(min_length=1)
+    provider: Literal["tmdb", "mal", "anilist", "anidb", "tvdb", "imdb"]
+    provider_id: str = Field(min_length=1)
+    note: str | None = Field(default=None, max_length=500)

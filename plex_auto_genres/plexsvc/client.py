@@ -129,6 +129,7 @@ def iter_library(server: PlexServer, library: str, *, page_size: int = 200) -> l
                 guids=guids,
                 current_genres=[t.tag for t in (getattr(raw, "genres", None) or [])],
                 current_collections=[t.tag for t in (getattr(raw, "collections", None) or [])],
+                thumb=getattr(raw, "thumb", None) or None,
                 handle=raw,
             )
         )

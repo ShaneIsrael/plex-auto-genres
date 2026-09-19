@@ -11,6 +11,7 @@ from pathlib import Path
 from ..config import AppConfig, etag_of, load_config
 from ..errors import ConfigError, PlexConnectionError
 from ..jobs import JobManager
+from ..models import MediaItem
 from ..plexsvc import client as plex_client
 from ..store import Store
 
@@ -54,6 +55,9 @@ class AppState:
         self._link = PlexLink(reachable=False)
         self._plex_ttl = plex_ttl_s
         self._plex_lock = asyncio.Lock()
+        self._items: dict[str, tuple[float, list[MediaItem]]] = {}
+        self._items_lock = asyncio.Lock()
+        self.items_ttl_s = 60.0
 
     def close(self) -> None:
         self.store.close()
@@ -122,3 +126,29 @@ class AppState:
         except PlexConnectionError:
             pass
         return self._link
+
+    # -- library items ----------------------------------------------------
+
+    async def library_items(self, library: str, *, refresh: bool = False) -> list[MediaItem]:
+        """Every item of a library, read from Plex and cached for a minute.
+
+        The browser filters on things Plex does not know (our cache status,
+        bindings), so it needs the whole list; reading it once per minute is
+        a handful of paged requests and keeps searching and paging instant.
+        """
+        key = library.casefold()
+        async with self._items_lock:
+            cached = self._items.get(key)
+            if cached and not refresh and time.time() - cached[0] < self.items_ttl_s:
+                return cached[1]
+            server = await self.plex()
+            items = await asyncio.to_thread(plex_client.iter_library, server, library)
+            self._items[key] = (time.time(), items)
+            return items
+
+    def forget_items(self, library: str | None = None) -> None:
+        """Drop the item cache, for one library or all."""
+        if library is None:
+            self._items.clear()
+        else:
+            self._items.pop(library.casefold(), None)

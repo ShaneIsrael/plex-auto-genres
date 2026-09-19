@@ -9,10 +9,11 @@ movies (``.keywords``) and TV (``.results``) -- the mismatch that made
 from __future__ import annotations
 
 from ..errors import ProviderAuthError, ProviderNotFound
-from ..models import ExternalId, MediaType, ProviderResult
-from .base import LookupRequest, Provider, pick_best
+from ..models import Candidate, ExternalId, MediaType, ProviderResult
+from .base import LookupRequest, Provider, pick_best, rank_candidates, short
 
 BASE_URL = "https://api.themoviedb.org/3"
+IMAGE_BASE = "https://image.tmdb.org/t/p/w185"
 
 
 def split_compound_genres(names: list[str]) -> list[str]:
@@ -101,6 +102,31 @@ class TmdbProvider(Provider):
             params=self._params(append_to_response="keywords"),
         )
         return self._to_result(details, request, str(tmdb_id))
+
+    async def search_candidates(self, request: LookupRequest, limit: int = 8) -> list[Candidate]:
+        segment = self._segment(request.media_type)
+        params = self._params(query=request.title, include_adult=True)
+        payload = await self.transport.get_json(f"{BASE_URL}/search/{segment}", params=params)
+        results = payload.get("results") or []
+        ranked = rank_candidates(
+            [(e.get("title") or e.get("name") or "", _year_of(e), e) for e in results],
+            request.title, request.year,
+        )
+        out: list[Candidate] = []
+        for entry in ranked[:limit]:
+            poster = entry.get("poster_path")  # type: ignore[union-attr]
+            vote = entry.get("vote_average")  # type: ignore[union-attr]
+            out.append(Candidate(
+                provider=self.name,
+                provider_id=str(entry["id"]),  # type: ignore[index]
+                title=entry.get("title") or entry.get("name") or "",  # type: ignore[union-attr]
+                year=_year_of(entry),  # type: ignore[arg-type]
+                url=f"https://www.themoviedb.org/{segment}/{entry['id']}",  # type: ignore[index]
+                image=f"{IMAGE_BASE}{poster}" if poster else None,
+                synopsis=short(entry.get("overview")),  # type: ignore[union-attr]
+                score=float(vote) if isinstance(vote, (int, float)) and vote > 0 else None,
+            ))
+        return out
 
     def _to_result(self, payload: dict, request: LookupRequest, tmdb_id: str) -> ProviderResult:
         segment = self._segment(request.media_type)

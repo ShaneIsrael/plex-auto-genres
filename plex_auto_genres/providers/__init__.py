@@ -15,6 +15,7 @@ from .jikan import JikanProvider
 from .tmdb import TmdbProvider
 
 __all__ = [
+    "GUID_SCHEMES",
     "AniDbMapper",
     "AniListProvider",
     "JikanProvider",
@@ -26,6 +27,14 @@ __all__ = [
 ]
 
 _LIMITS = {"jikan": JIKAN_LIMITS, "anilist": ANILIST_LIMITS, "tmdb": TMDB_LIMITS}
+
+#: Which Plex GUID schemes each provider resolves without a search. Class
+#: attributes, so no credentials are needed to consult this.
+GUID_SCHEMES: dict[str, tuple[str, ...]] = {
+    "jikan": JikanProvider.guid_schemes,
+    "anilist": AniListProvider.guid_schemes,
+    "tmdb": TmdbProvider.guid_schemes,
+}
 
 
 class ProviderPool:

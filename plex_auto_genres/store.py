@@ -270,6 +270,43 @@ class Store:
                  error[:500], time.time()),
             )
 
+    def states_for_library(self, library: str) -> dict[str, CachedState]:
+        """Every cached entry of a library, keyed by media key. One query."""
+        with self._read() as conn:
+            rows = conn.execute(
+                "SELECT media_key, status, fingerprint, attempts, updated_at, genres, last_error "
+                "FROM media_state WHERE library = ?",
+                (library,),
+            ).fetchall()
+        return {
+            row["media_key"]: CachedState(
+                status=row["status"],
+                fingerprint=row["fingerprint"],
+                attempts=row["attempts"],
+                updated_at=row["updated_at"],
+                genres=json.loads(row["genres"]) if row["genres"] else [],
+                last_error=row["last_error"],
+            )
+            for row in rows
+        }
+
+    def providers_for_library(self, library: str) -> dict[str, tuple[str | None, str | None]]:
+        """``media_key -> (provider, provider_id)`` for every cached entry."""
+        with self._read() as conn:
+            rows = conn.execute(
+                "SELECT media_key, provider, provider_id FROM media_state WHERE library = ?",
+                (library,),
+            ).fetchall()
+        return {row["media_key"]: (row["provider"], row["provider_id"]) for row in rows}
+
+    def forget(self, library: str, media_key: str) -> bool:
+        """Drop one item's cache entry so the next run looks at it again."""
+        with self._tx() as conn:
+            cur = conn.execute(
+                "DELETE FROM media_state WHERE library = ? AND media_key = ?", (library, media_key)
+            )
+        return cur.rowcount > 0
+
     def clear_library(self, library: str) -> int:
         with self._tx() as conn:
             cur = conn.execute("DELETE FROM media_state WHERE library = ?", (library,))
@@ -330,11 +367,20 @@ class Store:
         return row["provider"], ExternalId(row["provider"], row["provider_id"])
 
     def delete_binding(self, library: str, media_key: str) -> bool:
-        """Remove a binding. Returns whether one existed."""
+        """Remove a binding. Returns whether one existed.
+
+        The cached match was produced *through* the binding, so it goes too;
+        the next run re-resolves the item from its GUID or by search.
+        """
         with self._tx() as conn:
             cur = conn.execute(
                 "DELETE FROM bindings WHERE library = ? AND media_key = ?", (library, media_key)
             )
+            if cur.rowcount:
+                conn.execute(
+                    "DELETE FROM media_state WHERE library = ? AND media_key = ?",
+                    (library, media_key),
+                )
         return cur.rowcount > 0
 
     def list_bindings(self, library: str | None = None) -> list[sqlite3.Row]:

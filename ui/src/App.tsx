@@ -9,6 +9,7 @@ const Overview = lazy(() => import("./pages/Overview"));
 const Runs = lazy(() => import("./pages/Runs"));
 const RunDetail = lazy(() => import("./pages/RunDetail"));
 const Libraries = lazy(() => import("./pages/Libraries"));
+const LibraryBrowser = lazy(() => import("./pages/LibraryBrowser"));
 const Config = lazy(() => import("./pages/Config"));
 const Bindings = lazy(() => import("./pages/Bindings"));
 
@@ -45,6 +46,14 @@ export default function App() {
           element={
             <Suspense fallback={<PageSkeleton />}>
               <Libraries />
+            </Suspense>
+          }
+        />
+        <Route
+          path="libraries/:name"
+          element={
+            <Suspense fallback={<PageSkeleton />}>
+              <LibraryBrowser />
             </Suspense>
           }
         />

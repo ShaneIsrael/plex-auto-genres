@@ -89,12 +89,19 @@ validating every keystroke. Saving writes the file atomically, keeps the previou
 a file that changed on disk since you loaded it. Credentials stay in the environment and
 are shown read-only.
 
-Bindings from the UI are the next phase; see [docs/webui-design.md](docs/webui-design.md).
+Each library has an **item browser**: every title with how it matched (a manual binding,
+the id Plex already had, or a title search), what was written, and why it failed if it
+did. From there you can search a provider for the right record — ranked candidates with
+posters and synopses — and **bind** the item to it, or type an id straight in. Bindings
+can also be removed, and a cached result forgotten so the next run retries it.
+
+What is still missing is authentication; see [docs/webui-design.md](docs/webui-design.md).
 
 Everything the UI does is plain HTTP — `POST /api/v1/libraries/{name}/run`,
 `GET /api/v1/jobs/{id}/events` (server-sent events), `POST /api/v1/jobs/{id}/cancel`,
-`POST /api/v1/runs/{id}/undo`, `PUT /api/v1/config` with `If-Match` — so it scripts as
-easily as the CLI.
+`POST /api/v1/runs/{id}/undo`, `PUT /api/v1/config` with `If-Match`,
+`GET /api/v1/libraries/{name}/items`, `GET /api/v1/search`, `POST`/`DELETE /api/v1/bindings`
+— so it scripts as easily as the CLI.
 
 ---
 

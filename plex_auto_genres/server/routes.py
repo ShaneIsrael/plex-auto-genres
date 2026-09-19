@@ -5,17 +5,21 @@ from __future__ import annotations
 import asyncio
 import json
 import time
+from typing import Literal
 
-from fastapi import APIRouter, HTTPException, Query, Request
+import httpx
+from fastapi import APIRouter, HTTPException, Query, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from .. import __version__
-from ..config import config_json_schema, validate_document, write_config
+from ..config import DEFAULT_PROVIDERS, config_json_schema, validate_document, write_config
 from ..doctor import run_doctor
-from ..errors import ConfigError, PlexConnectionError
+from ..errors import ConfigError, PlexConnectionError, ProviderError
 from ..jobs import Job, JobConflict, JobError, JobOptions
-from ..models import MediaType
+from ..models import MediaItem, MediaType
+from ..pipeline import media_key
 from ..plexsvc.writer import undo_run
+from ..providers import GUID_SCHEMES, LookupRequest, build_providers
 from . import schemas
 from .state import AppState
 
@@ -405,4 +409,204 @@ async def job_events(request: Request, job_id: str) -> StreamingResponse:
         stream(),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+# -- library browser ---------------------------------------------------------
+
+
+def _match_source(item: MediaItem, entry, bound: bool) -> str:
+    if bound:
+        return "binding"
+    schemes: set[str] = set()
+    for name in entry.resolved_providers:
+        schemes.update(GUID_SCHEMES.get(name, ()))
+    if entry.type.is_anime:
+        schemes.add("anidb")  # translated through the mapping table
+    return "guid" if any(g.scheme in schemes for g in item.guids) else "search"
+
+
+@router.get("/libraries/{name}/items", response_model=schemas.ItemsPage)
+async def library_items(
+    request: Request,
+    name: str,
+    page: int = Query(default=1, ge=1),
+    size: int = Query(default=50, ge=1, le=200),
+    q: str | None = Query(default=None, max_length=200),
+    status: Literal["all", "ok", "failed", "unprocessed", "bound"] = "all",
+    refresh: bool = False,
+) -> schemas.ItemsPage:
+    """A page of a configured library's items, joined with match and cache state."""
+    state = _state(request)
+    config = _config_or_503(state)
+    entry = config.find(name)
+    if entry is None:
+        raise HTTPException(status_code=404, detail=f"Library {name!r} is not configured.")
+
+    try:
+        items = await state.library_items(entry.library, refresh=refresh)
+    except PlexConnectionError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    states = state.store.states_for_library(entry.library)
+    providers = state.store.providers_for_library(entry.library)
+    bound = {
+        row["media_key"]: schemas.BindingView(**dict(row))
+        for row in state.store.list_bindings(entry.library)
+    }
+
+    def classify(item: MediaItem) -> tuple[str, str]:
+        key = media_key(item)
+        cached = states.get(key)
+        bucket = "unprocessed" if cached is None else cached.status
+        return key, bucket
+
+    counts = {"all": len(items), "ok": 0, "failed": 0, "unprocessed": 0, "bound": 0}
+    rows: list[tuple[MediaItem, str, str]] = []
+    needle = q.casefold().strip() if q else ""
+    for item in items:
+        key, bucket = classify(item)
+        counts[bucket] += 1
+        if key in bound:
+            counts["bound"] += 1
+        if needle and needle not in item.title.casefold():
+            continue
+        if status == "bound" and key not in bound:
+            continue
+        if status in ("ok", "failed", "unprocessed") and bucket != status:
+            continue
+        rows.append((item, key, bucket))
+
+    rows.sort(key=lambda r: (r[0].title.casefold(), r[0].year or 0))
+    start = (page - 1) * size
+    views: list[schemas.ItemView] = []
+    for item, key, _bucket in rows[start:start + size]:
+        cached = states.get(key)
+        provider, provider_id = providers.get(key, (None, None))
+        views.append(schemas.ItemView(
+            rating_key=item.rating_key,
+            media_key=key,
+            title=item.title,
+            year=item.year,
+            thumb=item.thumb,
+            guids=[str(g) for g in item.guids],
+            match=_match_source(item, entry, key in bound),  # type: ignore[arg-type]
+            binding=bound.get(key),
+            state=schemas.ItemState(
+                status=cached.status,  # type: ignore[arg-type]
+                provider=provider,
+                provider_id=provider_id,
+                genres=cached.genres,
+                attempts=cached.attempts,
+                last_error=cached.last_error,
+                updated_at=cached.updated_at,
+            ) if cached else None,
+            current_genres=item.current_genres,
+            current_collections=item.current_collections,
+        ))
+
+    return schemas.ItemsPage(
+        library=entry.library, total=len(rows), page=page, size=size, counts=counts, items=views
+    )
+
+
+@router.post("/libraries/{name}/items/forget", status_code=200)
+async def forget_item(
+    request: Request, name: str, media_key_: str = Query(alias="media_key")
+) -> dict:
+    """Drop one item's cache entry so the next run looks at it again."""
+    state = _state(request)
+    config = _config_or_503(state)
+    entry = config.find(name)
+    if entry is None:
+        raise HTTPException(status_code=404, detail=f"Library {name!r} is not configured.")
+    return {"forgotten": state.store.forget(entry.library, media_key_)}
+
+
+# -- candidate search ----------------------------------------------------------
+
+
+@router.get("/search", response_model=list[schemas.CandidateView])
+async def search_candidates(
+    request: Request,
+    q: str = Query(min_length=1, max_length=200),
+    type: MediaType = Query(alias="type"),  # pylint: disable=redefined-builtin
+    provider: str | None = None,
+    year: int | None = Query(default=None, ge=1800, le=2100),
+    limit: int = Query(default=8, ge=1, le=20),
+) -> list[schemas.CandidateView]:
+    """Ranked suggestions from one provider, for picking a binding by hand."""
+    state = _state(request)
+    config = _config_or_503(state)
+    name = provider or DEFAULT_PROVIDERS[type][0]
+    try:
+        pool = build_providers((name,), type, config.providers)
+    except (ConfigError, ProviderError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    lookup = LookupRequest(title=q, year=year, media_type=type)
+    async with pool:
+        try:
+            found = await pool.providers[0].search_candidates(lookup, limit=limit)
+        except ProviderError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return [schemas.CandidateView(**c.as_dict()) for c in found]
+
+
+# -- bindings CRUD -------------------------------------------------------------
+
+
+@router.post("/bindings", response_model=schemas.BindingView, status_code=201)
+async def create_binding(request: Request, body: schemas.BindingIn) -> schemas.BindingView:
+    """Pin an item to a provider id. Replaces an existing binding for that item."""
+    state = _state(request)
+    config = _config_or_503(state)
+    entry = config.find(body.library)
+    if entry is None:
+        raise HTTPException(status_code=404, detail=f"Library {body.library!r} is not configured.")
+    state.store.set_binding(
+        entry.library, body.media_key, body.provider, body.provider_id, body.note
+    )
+    row = next(
+        r for r in state.store.list_bindings(entry.library) if r["media_key"] == body.media_key
+    )
+    return schemas.BindingView(**dict(row))
+
+
+@router.delete("/bindings", status_code=200)
+async def delete_binding(
+    request: Request, library: str, media_key_: str = Query(alias="media_key")
+) -> dict:
+    """Remove a binding; the item's cached match goes with it."""
+    state = _state(request)
+    removed = state.store.delete_binding(library, media_key_)
+    if not removed:
+        raise HTTPException(status_code=404, detail="No such binding.")
+    return {"removed": True}
+
+
+# -- poster proxy --------------------------------------------------------------
+
+
+@router.get("/plex/thumb", include_in_schema=False)
+async def plex_thumb(request: Request, path: str) -> Response:
+    """Fetch a poster from Plex with our token, so the browser never sees it."""
+    if not path.startswith("/library/") or ".." in path or "?" in path:
+        raise HTTPException(status_code=400, detail="Not a Plex artwork path.")
+    state = _state(request)
+    try:
+        server = await state.plex()
+    except PlexConnectionError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    url = server.url(path, includeToken=True)
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            upstream = await client.get(url)
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail=f"Plex artwork fetch failed: {exc}") from exc
+    if upstream.status_code != 200:
+        raise HTTPException(status_code=404, detail="No artwork.")
+    return Response(
+        content=upstream.content,
+        media_type=upstream.headers.get("content-type", "image/jpeg"),
+        headers={"Cache-Control": "public, max-age=86400"},
     )

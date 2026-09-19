@@ -38,20 +38,6 @@ class FakePlex:
 
 
 @pytest.fixture
-def config_file(tmp_path):
-    path = tmp_path / "config.json"
-    path.write_text(json.dumps({
-        "version": 2,
-        "defaults": {"anime": {"ignore": ["Kids"]}},
-        "libraries": [
-            {"library": "Animes", "type": "anime", "useGenres": True, "clearGenres": True},
-            {"library": "Films", "type": "standard-movie", "enabled": False},
-        ],
-    }))
-    return path
-
-
-@pytest.fixture
 def client(tmp_path, config_file, monkeypatch):
     monkeypatch.setenv("PLEX_BASE_URL", "http://plex:32400")
     monkeypatch.setenv("PLEX_TOKEN", "t")

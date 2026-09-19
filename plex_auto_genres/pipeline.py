@@ -23,6 +23,20 @@ from .store import Store
 
 log = logging.getLogger(__name__)
 
+def media_key(item: MediaItem) -> str:
+    """Cache key: a stable GUID when Plex has one, else title + year.
+
+    Using the GUID means renaming a file in Plex no longer orphans its cache
+    entry, which is what the v1 ``"Title (Year)"`` key did. Bindings are keyed
+    the same way, so the UI can address an item by it.
+    """
+    for scheme in ("tmdb", "mal", "anilist", "tvdb", "anidb", "imdb"):
+        found = item.find_id(scheme)
+        if found is not None:
+            return str(found)
+    return item.identifier
+
+
 ProgressFn = Callable[[ItemOutcome], None]
 #: Called once an action knows its scope: (run_id, total items, items to process).
 BeginFn = Callable[[str, int, int], None]
@@ -237,16 +251,7 @@ class Pipeline:
 
     @staticmethod
     def _media_key(item: MediaItem) -> str:
-        """Cache key: a stable GUID when Plex has one, else title + year.
-
-        Using the GUID means renaming a file in Plex no longer orphans its
-        cache entry, which is what the v1 ``"Title (Year)"`` key did.
-        """
-        for scheme in ("tmdb", "mal", "anilist", "tvdb", "anidb", "imdb"):
-            found = item.find_id(scheme)
-            if found is not None:
-                return str(found)
-        return item.identifier
+        return media_key(item)
 
     @staticmethod
     def _tally(report: RunReport, outcome: ItemOutcome) -> None:

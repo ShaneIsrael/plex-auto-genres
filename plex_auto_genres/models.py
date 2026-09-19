@@ -78,6 +78,8 @@ class MediaItem:
     guids: list[ExternalId] = field(default_factory=list)
     current_genres: list[str] = field(default_factory=list)
     current_collections: list[str] = field(default_factory=list)
+    #: Plex poster path, e.g. ``/library/metadata/123/thumb/456``.
+    thumb: str | None = None
     #: The live plexapi object, kept so the writer can edit it.
     handle: object | None = None
 
@@ -106,6 +108,34 @@ class ProviderResult:
     #: 0-10 scale, matching what Plex's ``rate()`` expects.
     score: float | None = None
     url: str | None = None
+
+
+@dataclass(slots=True)
+class Candidate:
+    """One possible match a provider offers for a title, for a human to pick."""
+
+    provider: str
+    provider_id: str
+    title: str
+    year: int | None = None
+    url: str | None = None
+    image: str | None = None
+    synopsis: str | None = None
+    score: float | None = None
+    genres: list[str] = field(default_factory=list)
+
+    def as_dict(self) -> dict:
+        return {
+            "provider": self.provider,
+            "provider_id": self.provider_id,
+            "title": self.title,
+            "year": self.year,
+            "url": self.url,
+            "image": self.image,
+            "synopsis": self.synopsis,
+            "score": self.score,
+            "genres": list(self.genres),
+        }
 
 
 @dataclass(slots=True)

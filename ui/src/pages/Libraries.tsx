@@ -54,7 +54,9 @@ function LibraryCard({ lib, index, active }: { lib: LibraryView; index: number; 
   return (
     <article className={`card reveal ${!lib.configured ? "card--ghost" : ""} ${lib.enabled === false ? "card--off" : ""}`} style={{ "--i": index } as React.CSSProperties}>
       <header className="card__head">
-        <h2 className="card__title">{lib.name}</h2>
+        <h2 className="card__title">
+          {lib.configured ? <Link to={`/libraries/${encodeURIComponent(lib.name)}`} className="card__titlelink">{lib.name}</Link> : lib.name}
+        </h2>
         {lib.configured ? (
           lib.enabled === false ? <span className="chip">disabled</span> : <span className="chip chip--type">{lib.type}</span>
         ) : (
@@ -106,7 +108,10 @@ function LibraryCard({ lib, index, active }: { lib: LibraryView; index: number; 
               ) : (
                 <span className="faint mono">never run</span>
               )}
-              <RunMenu library={lib.name} active={active} />
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <Link to={`/libraries/${encodeURIComponent(lib.name)}`} className="button button--ghost button--sm">Items</Link>
+                <RunMenu library={lib.name} active={active} />
+              </div>
             </div>
           </footer>
         </>

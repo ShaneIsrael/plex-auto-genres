@@ -233,3 +233,62 @@ export interface SaveResult {
   backup: string | null;
   errors: ValidationIssue[];
 }
+
+export type MatchSource = "binding" | "guid" | "search";
+
+export interface ItemState {
+  status: "ok" | "failed";
+  provider: string | null;
+  provider_id: string | null;
+  genres: string[];
+  attempts: number;
+  last_error: string | null;
+  updated_at: number;
+}
+
+export interface ItemView {
+  rating_key: number;
+  media_key: string;
+  title: string;
+  year: number | null;
+  thumb: string | null;
+  guids: string[];
+  match: MatchSource;
+  binding: BindingView | null;
+  state: ItemState | null;
+  current_genres: string[];
+  current_collections: string[];
+}
+
+export type ItemStatusFilter = "all" | "ok" | "failed" | "unprocessed" | "bound";
+
+export interface ItemsPage {
+  library: string;
+  total: number;
+  page: number;
+  size: number;
+  counts: Record<ItemStatusFilter, number>;
+  items: ItemView[];
+}
+
+export interface CandidateView {
+  provider: string;
+  provider_id: string;
+  title: string;
+  year: number | null;
+  url: string | null;
+  image: string | null;
+  synopsis: string | null;
+  score: number | null;
+  genres: string[];
+}
+
+export type BindingProvider = "tmdb" | "mal" | "anilist" | "anidb" | "tvdb" | "imdb";
+
+export interface BindingIn {
+  library: string;
+  media_key: string;
+  provider: BindingProvider;
+  provider_id: string;
+  note?: string | null;
+}
