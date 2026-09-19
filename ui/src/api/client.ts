@@ -1,12 +1,20 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useRef, useState } from "react";
 import type {
   BindingView,
   ConfigView,
   DoctorReport,
   Health,
+  JobEvent,
+  JobProgress,
+  JobStatus,
+  JobView,
   LibraryView,
   Problem,
+  RunOptions,
   RunView,
+  StartJobs,
+  UndoResult,
 } from "./types";
 
 export class ApiError extends Error {
@@ -41,8 +49,33 @@ async function get<T>(path: string, params?: Record<string, string | number | un
   return (await response.json()) as T;
 }
 
+async function post<T>(path: string, body?: unknown): Promise<T> {
+  const response = await fetch(new URL(path, window.location.origin), {
+    method: "POST",
+    headers: { Accept: "application/json", "Content-Type": "application/json" },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  if (!response.ok) {
+    let problem: Problem = { title: response.statusText || "Request failed", status: response.status };
+    try {
+      problem = { ...problem, ...(await response.json()) };
+    } catch {
+      /* not JSON */
+    }
+    throw new ApiError(problem);
+  }
+  return (await response.json()) as T;
+}
+
 export const api = {
   health: () => get<Health>("/api/v1/health"),
+  jobs: () => get<JobView[]>("/api/v1/jobs"),
+  job: (id: string) => get<JobView>(`/api/v1/jobs/${encodeURIComponent(id)}`),
+  startJob: (library: string, options: RunOptions = {}) =>
+    post<JobView>(`/api/v1/libraries/${encodeURIComponent(library)}/run`, options),
+  startJobs: (body: StartJobs) => post<JobView[]>("/api/v1/jobs", body),
+  cancelJob: (id: string) => post<JobView>(`/api/v1/jobs/${encodeURIComponent(id)}/cancel`),
+  undoRun: (id: string) => post<UndoResult>(`/api/v1/runs/${encodeURIComponent(id)}/undo`),
   config: () => get<ConfigView>("/api/v1/config"),
   schema: () => get<Record<string, unknown>>("/api/v1/config/schema"),
   doctor: () => get<DoctorReport>("/api/v1/doctor"),
@@ -77,3 +110,180 @@ export const useRun = (id: string) =>
 
 export const useBindings = (library?: string) =>
   useQuery({ queryKey: ["bindings", library ?? ""], queryFn: () => api.bindings(library) });
+
+// -- jobs ------------------------------------------------------------------
+
+const ACTIVE: JobStatus[] = ["queued", "running"];
+
+export const isActive = (job: Pick<JobView, "status">) => ACTIVE.includes(job.status);
+
+/** Polls briskly while anything is queued or running, lazily otherwise. */
+export const useJobs = () =>
+  useQuery({
+    queryKey: ["jobs"],
+    queryFn: api.jobs,
+    refetchInterval: (query) => (query.state.data?.some(isActive) ? 2_000 : 20_000),
+  });
+
+export const useJob = (id: string | null | undefined) =>
+  useQuery({
+    queryKey: ["job", id ?? ""],
+    queryFn: () => api.job(id!),
+    enabled: Boolean(id),
+    refetchInterval: (query) => (query.state.data && isActive(query.state.data) ? 2_000 : false),
+  });
+
+/** Invalidate everything a finished job can have changed. */
+function useInvalidateAfterJob() {
+  const qc = useQueryClient();
+  return () => {
+    void qc.invalidateQueries({ queryKey: ["jobs"] });
+    void qc.invalidateQueries({ queryKey: ["runs"] });
+    void qc.invalidateQueries({ queryKey: ["run"] });
+    void qc.invalidateQueries({ queryKey: ["libraries"] });
+  };
+}
+
+export function useStartJob() {
+  const invalidate = useInvalidateAfterJob();
+  return useMutation({
+    mutationFn: ({ library, options }: { library: string; options?: RunOptions }) =>
+      api.startJob(library, options),
+    onSuccess: invalidate,
+  });
+}
+
+export function useStartJobs() {
+  const invalidate = useInvalidateAfterJob();
+  return useMutation({ mutationFn: (body: StartJobs) => api.startJobs(body), onSuccess: invalidate });
+}
+
+export function useCancelJob() {
+  const invalidate = useInvalidateAfterJob();
+  return useMutation({ mutationFn: (id: string) => api.cancelJob(id), onSuccess: invalidate });
+}
+
+export function useUndoRun() {
+  const invalidate = useInvalidateAfterJob();
+  return useMutation({ mutationFn: (id: string) => api.undoRun(id), onSuccess: invalidate });
+}
+
+export interface LiveJob {
+  job: JobView | null;
+  progress: JobProgress | null;
+  status: JobStatus | null;
+  /** The most recent failed item, for the ticker. */
+  lastError: { title: string; error: string } | null;
+  connected: boolean;
+}
+
+/**
+ * Follow a job over SSE. Progress is strictly server -> client, so an
+ * EventSource is enough; it reconnects on its own and we resync from the
+ * `snapshot` event each time.
+ */
+export function useJobEvents(jobId: string | null | undefined): LiveJob {
+  const [state, setState] = useState<LiveJob>({
+    job: null,
+    progress: null,
+    status: null,
+    lastError: null,
+    connected: false,
+  });
+  const invalidate = useInvalidateAfterJob();
+  const invalidateRef = useRef(invalidate);
+  invalidateRef.current = invalidate;
+
+  useEffect(() => {
+    if (!jobId) return;
+    const source = new EventSource(`/api/v1/jobs/${encodeURIComponent(jobId)}/events`);
+
+    const handle = (message: JobEvent) => {
+      setState((prev) => {
+        switch (message.event) {
+          case "snapshot":
+          case "status":
+            return {
+              ...prev,
+              job: message.data,
+              progress: message.data.progress,
+              status: message.data.status,
+              connected: true,
+            };
+          case "begin":
+            return {
+              ...prev,
+              status: "running",
+              progress: {
+                action: message.data.action,
+                run_id: message.data.run_id,
+                total: message.data.total,
+                pending: message.data.pending,
+                done: 0,
+                written: 0,
+                unchanged: 0,
+                failed: 0,
+                title: null,
+              },
+            };
+          case "item":
+            return {
+              ...prev,
+              progress: prev.progress
+                ? {
+                    ...prev.progress,
+                    done: message.data.done,
+                    written: message.data.written,
+                    unchanged: message.data.unchanged,
+                    failed: message.data.failed,
+                    title: message.data.title,
+                  }
+                : prev.progress,
+              lastError:
+                message.data.status === "failed"
+                  ? { title: message.data.title, error: message.data.error ?? "failed" }
+                  : prev.lastError,
+            };
+          case "report":
+            return {
+              ...prev,
+              job: prev.job
+                ? { ...prev.job, reports: [...prev.job.reports, message.data.report], run_ids: prev.job.run_ids.includes(message.data.run_id) ? prev.job.run_ids : [...prev.job.run_ids, message.data.run_id] }
+                : prev.job,
+            };
+          case "end":
+            return {
+              ...prev,
+              status: message.data.status,
+              job: prev.job
+                ? { ...prev.job, status: message.data.status, error: message.data.error, reports: message.data.reports, run_ids: message.data.run_ids, finished_at: Date.now() / 1000 }
+                : prev.job,
+            };
+        }
+      });
+      if (message.event === "end") {
+        source.close();
+        setState((prev) => ({ ...prev, connected: false }));
+        invalidateRef.current();
+      }
+    };
+
+    for (const name of ["snapshot", "status", "begin", "item", "report", "end"] as const) {
+      source.addEventListener(name, (raw) => {
+        try {
+          handle({ event: name, data: JSON.parse((raw as MessageEvent).data) } as JobEvent);
+        } catch {
+          /* malformed frame; ignore */
+        }
+      });
+    }
+    source.onopen = () => setState((prev) => ({ ...prev, connected: true }));
+    source.onerror = () => setState((prev) => ({ ...prev, connected: false }));
+
+    return () => {
+      source.close();
+    };
+  }, [jobId]);
+
+  return state;
+}

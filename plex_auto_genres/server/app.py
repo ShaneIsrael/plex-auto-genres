@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -14,10 +13,8 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from .. import __version__
-from ..config import AppConfig
 from ..errors import PagError
-from ..plexsvc import client as plex_client
-from ..runner import run_libraries
+from ..jobs import JobOptions
 from ..scheduler import run_forever
 from .routes import router
 from .state import AppState
@@ -59,8 +56,9 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        state = AppState(config_path, db_path)
+        state = AppState(config_path, db_path, posters_dir=posters_dir)
         app.state.pag = state
+        await state.jobs.start()
         task: asyncio.Task | None = None
 
         if cron:
@@ -70,7 +68,10 @@ def create_app(
                 state.scheduler_next = fire_at
 
             async def scheduled() -> None:
-                await _scheduled_pass(state, posters_dir)
+                # Through the manager, so a scheduled pass shows up as jobs
+                # with live progress and queues behind anything manual.
+                jobs = state.jobs.enqueue_all(JobOptions(source="schedule"))
+                log.info("Scheduled pass queued %d job(s)", len(jobs))
 
             task = asyncio.create_task(
                 run_forever(cron, scheduled, run_now=run_on_start, on_schedule=note_next)
@@ -86,6 +87,7 @@ def create_app(
                     await task
                 except (asyncio.CancelledError, Exception):
                     pass
+            await state.jobs.stop()
             state.close()
 
     app = FastAPI(
@@ -157,23 +159,3 @@ def _mount_ui(app: FastAPI, static: Path | None) -> None:
         if path and candidate.is_file() and static.resolve() in candidate.parents:
             return FileResponse(candidate)
         return FileResponse(index, headers={"Cache-Control": "no-cache"})
-
-
-async def _scheduled_pass(state: AppState, posters_dir: str | Path) -> None:
-    """One scheduled execution over every enabled library."""
-    stamp = time.strftime("%Y-%m-%d %H:%M:%S")
-    log.info("--- scheduled run %s ---", stamp)
-    config: AppConfig = state.config()
-    runs = [r for r in config.libraries if r.enabled]
-    if not runs:
-        log.info("No enabled libraries; nothing to do")
-        return
-    server = await asyncio.to_thread(plex_client.connect, config.plex)
-    reports = await run_libraries(
-        config, state.store, server, runs, posters_dir=posters_dir,
-        on_report=lambda r: log.info(
-            "%s/%s: %d written, %d failed, %d skipped",
-            r.library, r.action, r.written, r.failed, r.skipped,
-        ),
-    )
-    log.info("Scheduled run finished: %d report(s)", len(reports))

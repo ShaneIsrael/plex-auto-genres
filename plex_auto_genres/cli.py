@@ -190,6 +190,38 @@ def _selected_runs(config: AppConfig, names: list[str] | None, type_override: st
 # --------------------------------------------------------------------------
 
 
+class _CliObserver:
+    """Progress bars and per-action summaries for a terminal."""
+
+    def __init__(self, style: Style, *, no_progress: bool, as_json: bool) -> None:
+        self._style = style
+        self._no_progress = no_progress
+        self._as_json = as_json
+        self._bar: ProgressBar | None = None
+
+    def begin(self, _run, _action: str, _run_id: str, _total: int, pending: int) -> None:
+        """Open a fresh bar sized to the items this action will process."""
+        self._close()
+        if pending:
+            # The bar counts the items actually being processed, so it fills
+            # to 100% even when most of the library is already cached.
+            self._bar = ProgressBar(pending, enabled=not self._no_progress)
+
+    def item(self, _run, outcome) -> None:
+        if self._bar is not None:
+            self._bar.advance(suffix=outcome.item.title)
+
+    def report(self, report: RunReport) -> None:
+        self._close()
+        if not self._as_json:
+            print_report(report, self._style)
+
+    def _close(self) -> None:
+        if self._bar is not None:
+            self._bar.close()
+            self._bar = None
+
+
 async def cmd_run(args, config: AppConfig, store: Store, style: Style) -> int:
     """Process the selected libraries and their post-processing actions."""
     runs = _selected_runs(config, args.library, args.type)
@@ -205,24 +237,11 @@ async def cmd_run(args, config: AppConfig, store: Store, style: Style) -> int:
             return 130
 
     server = await asyncio.to_thread(plex_client.connect, config.plex)
-    bars: list[ProgressBar] = []
-
-    def on_library_start(_run, total: int):
-        progress = ProgressBar(total, enabled=not args.no_progress)
-        bars.append(progress)
-        return lambda outcome, _p=progress: _p.advance(suffix=outcome.item.title)
-
-    def on_report(report: RunReport) -> None:
-        while bars:
-            bars.pop().close()
-        if not args.json:
-            print_report(report, style)
-
     reports = await run_libraries(
         config, store, server, runs,
         dry_run=args.dry, force=args.force, only=set(args.only or ()),
         posters_dir=args.posters_dir,
-        on_library_start=on_library_start, on_report=on_report,
+        observer=_CliObserver(style, no_progress=args.no_progress, as_json=args.json),
     )
 
     if args.json:

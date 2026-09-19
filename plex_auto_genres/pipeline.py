@@ -24,6 +24,8 @@ from .store import Store
 log = logging.getLogger(__name__)
 
 ProgressFn = Callable[[ItemOutcome], None]
+#: Called once an action knows its scope: (run_id, total items, items to process).
+BeginFn = Callable[[str, int, int], None]
 
 
 class Pipeline:
@@ -47,7 +49,11 @@ class Pipeline:
     # -- genre / collection tagging --------------------------------------
 
     async def tag_library(
-        self, run: LibraryRun, *, progress: ProgressFn | None = None
+        self,
+        run: LibraryRun,
+        *,
+        progress: ProgressFn | None = None,
+        on_begin: BeginFn | None = None,
     ) -> RunReport:
         """Fetch genres for every item that needs them and write them to Plex.
 
@@ -71,13 +77,11 @@ class Pipeline:
         items = await asyncio.to_thread(plex_client.iter_library, self.server, run.library)
         log.debug("%s: %d items in library", run.library, len(items))
 
-        pending: list[MediaItem] = []
-        for item in items:
-            key = self._media_key(item)
-            if self.store.should_process(run.library, key, fingerprint, force=self.force):
-                pending.append(item)
-            else:
-                report.skipped += 1
+        pending = self._pending(items, run, fingerprint)
+        report.skipped = len(items) - len(pending)
+        if on_begin is not None:
+            on_begin(run_id, len(items), len(pending))
+
         if not pending:
             report.duration_s = time.monotonic() - started
             self.store.finish_run(report)
@@ -153,17 +157,46 @@ class Pipeline:
 
         async with pool:
             tasks = [asyncio.create_task(handle(item)) for item in pending]
-            for coro in asyncio.as_completed(tasks):
-                outcome = await coro
-                self._tally(report, outcome)
-                if progress is not None:
-                    progress(outcome)
+            try:
+                for coro in asyncio.as_completed(tasks):
+                    outcome = await coro
+                    self._tally(report, outcome)
+                    if progress is not None:
+                        progress(outcome)
+            except asyncio.CancelledError:
+                await self._abandon(tasks, report, pool, writer, started)
+                raise
             report.provider_requests = pool.request_count
 
         report.plex_requests = writer.requests
         report.duration_s = time.monotonic() - started
         self.store.finish_run(report)
         return report
+
+    def _pending(self, items: list[MediaItem], run: LibraryRun, fingerprint: str) -> list[MediaItem]:
+        """The items the cache says still need work under these settings."""
+        return [
+            item for item in items
+            if self.store.should_process(
+                run.library, self._media_key(item), fingerprint, force=self.force
+            )
+        ]
+
+    async def _abandon(self, tasks, report: RunReport, pool, writer, started: float) -> None:
+        """Wind a run down after cancellation.
+
+        Nothing new is scheduled; the run row is closed with what did happen
+        (marked ``cancelled``) *before* waiting on in-flight items, so a second
+        cancel cannot leave it dangling; then the workers are let settle.
+        """
+        for task in tasks:
+            task.cancel()
+        report.cancelled = True
+        report.provider_requests = pool.request_count
+        report.plex_requests = writer.requests
+        report.duration_s = time.monotonic() - started
+        self.store.finish_run(report)
+        await asyncio.gather(*tasks, return_exceptions=True)
 
     async def _resolve(
         self,
@@ -228,7 +261,11 @@ class Pipeline:
     # -- post-processing actions -----------------------------------------
 
     async def rate_library(
-        self, run: LibraryRun, *, progress: ProgressFn | None = None
+        self,
+        run: LibraryRun,
+        *,
+        progress: ProgressFn | None = None,
+        on_begin: BeginFn | None = None,
     ) -> RunReport:
         """Overwrite Plex ratings with provider scores."""
         started = time.monotonic()
@@ -239,6 +276,8 @@ class Pipeline:
         writer = PlexWriter(self.store, run_id, run.library, dry_run=self.dry_run)
 
         items = await asyncio.to_thread(plex_client.iter_library, self.server, run.library)
+        if on_begin is not None:
+            on_begin(run_id, len(items), len(items))
         pool = build_providers(run.resolved_providers, run.type, self.config.providers)
         mapper = AniDbMapper(self.store, enabled=run.type.is_anime)
         fetch_sem = asyncio.Semaphore(self.config.providers.concurrency)
@@ -255,11 +294,16 @@ class Pipeline:
                 return ItemOutcome(item=item, status="failed", error=str(exc))
 
         async with pool:
-            for coro in asyncio.as_completed([asyncio.create_task(handle(i)) for i in items]):
-                outcome = await coro
-                self._tally(report, outcome)
-                if progress is not None:
-                    progress(outcome)
+            tasks = [asyncio.create_task(handle(i)) for i in items]
+            try:
+                for coro in asyncio.as_completed(tasks):
+                    outcome = await coro
+                    self._tally(report, outcome)
+                    if progress is not None:
+                        progress(outcome)
+            except asyncio.CancelledError:
+                await self._abandon(tasks, report, pool, writer, started)
+                raise
             report.provider_requests = pool.request_count
 
         report.plex_requests = writer.requests
@@ -267,7 +311,13 @@ class Pipeline:
         self.store.finish_run(report)
         return report
 
-    async def rating_collections(self, run: LibraryRun) -> RunReport:
+    async def rating_collections(
+        self,
+        run: LibraryRun,
+        *,
+        progress: ProgressFn | None = None,
+        on_begin: BeginFn | None = None,
+    ) -> RunReport:
         """Bucket media into '1 Star Rating' ... '5 Star Rating' collections."""
         started = time.monotonic()
         run_id = self.store.start_run(run.library, "rating-collections", dry_run=self.dry_run)
@@ -277,6 +327,8 @@ class Pipeline:
         )
         writer = PlexWriter(self.store, run_id, run.library, dry_run=self.dry_run)
         items = await asyncio.to_thread(plex_client.iter_library, self.server, run.library)
+        if on_begin is not None:
+            on_begin(run_id, len(items), len(items))
 
         for item in items:
             rating = getattr(item.handle, "rating", None) or getattr(
@@ -285,25 +337,35 @@ class Pipeline:
             bucket = rating_bucket(rating)
             if bucket is None:
                 report.skipped += 1
+                if progress is not None:
+                    progress(ItemOutcome(item=item, status="skipped"))
                 continue
             outcome = await asyncio.to_thread(
                 writer.write_tags, item, TagField.COLLECTION, [bucket], clear=False
             )
             report.written += int(outcome.changed)
             report.unchanged += int(not outcome.changed)
+            if progress is not None:
+                progress(ItemOutcome(
+                    item=item, status="written" if outcome.changed else "unchanged"
+                ))
 
         report.plex_requests = writer.requests
         report.duration_s = time.monotonic() - started
         self.store.finish_run(report)
         return report
 
-    async def set_posters(self, run: LibraryRun, posters_dir: str) -> RunReport:
+    async def set_posters(
+        self, run: LibraryRun, posters_dir: str, *, on_begin: BeginFn | None = None
+    ) -> RunReport:
         """Upload collection artwork from a poster directory."""
         started = time.monotonic()
         run_id = self.store.start_run(run.library, "posters", dry_run=self.dry_run)
         report = RunReport(
             run_id=run_id, library=run.library, action="posters", dry_run=self.dry_run
         )
+        if on_begin is not None:
+            on_begin(run_id, 0, 0)
         section = await asyncio.to_thread(plex_client.get_section, self.server, run.library)
         uploaded, missing = await asyncio.to_thread(
             upload_posters, section, posters_dir,
@@ -315,13 +377,15 @@ class Pipeline:
         self.store.finish_run(report)
         return report
 
-    async def sort(self, run: LibraryRun) -> RunReport:
+    async def sort(self, run: LibraryRun, *, on_begin: BeginFn | None = None) -> RunReport:
         """Prefix the sort titles of the configured collections."""
         started = time.monotonic()
         run_id = self.store.start_run(run.library, "sort", dry_run=self.dry_run)
         report = RunReport(
             run_id=run_id, library=run.library, action="sort", dry_run=self.dry_run
         )
+        if on_begin is not None:
+            on_begin(run_id, 0, 0)
         rules = self.config.rules_for(run)
         if not rules.sorted_prefix:
             raise ValueError(

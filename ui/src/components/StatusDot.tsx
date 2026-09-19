@@ -38,4 +38,5 @@ export const RUN_STATUS_LABEL: Record<RunStatus, string> = {
   partial: "partial",
   failed: "failed",
   undone: "undone",
+  cancelled: "cancelled",
 };

@@ -1,6 +1,7 @@
 -r requirements.txt
 pytest>=8.0
 pytest-asyncio>=0.23
+pytest-timeout>=2.3
 respx>=0.21
 pylint>=3.0
 pylint-pydantic>=0.3

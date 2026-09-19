@@ -2,7 +2,9 @@
 
 export type MediaType = "anime" | "standard-tv" | "standard-movie";
 export type Level = "ok" | "warn" | "error";
-export type RunStatus = "running" | "interrupted" | "ok" | "partial" | "failed" | "undone";
+export type RunStatus = "running" | "interrupted" | "ok" | "partial" | "failed" | "undone" | "cancelled";
+export type JobStatus = "queued" | "running" | "done" | "failed" | "cancelled";
+export type Action = "tags" | "posters" | "sort" | "ratings" | "rating-collections";
 
 export interface PlexStatus {
   reachable: boolean;
@@ -98,6 +100,7 @@ export interface RunReport {
   provider_requests: number;
   duration_s: number;
   failures: [string, string][];
+  cancelled: boolean;
 }
 
 export interface RunView {
@@ -110,6 +113,8 @@ export interface RunView {
   finished_at: number | null;
   undone_at: number | null;
   report: RunReport | null;
+  /** Set while the job that produced this run is still remembered by the server. */
+  job_id: string | null;
 }
 
 export interface PlexSection {
@@ -146,3 +151,57 @@ export interface Problem {
   status: number;
   detail?: string | null;
 }
+
+export interface JobProgress {
+  action: string | null;
+  run_id: string | null;
+  total: number;
+  pending: number;
+  done: number;
+  written: number;
+  unchanged: number;
+  failed: number;
+  title: string | null;
+}
+
+export interface JobView {
+  job_id: string;
+  library: string;
+  status: JobStatus;
+  source: "api" | "schedule" | string;
+  dry_run: boolean;
+  force: boolean;
+  only: Action[];
+  created_at: number;
+  started_at: number | null;
+  finished_at: number | null;
+  error: string | null;
+  run_ids: string[];
+  progress: JobProgress;
+  reports: RunReport[];
+}
+
+export interface RunOptions {
+  dry_run?: boolean;
+  force?: boolean;
+  only?: Action[];
+}
+
+export interface StartJobs extends RunOptions {
+  libraries?: string[] | null;
+}
+
+export interface UndoResult {
+  run_id: string;
+  restored: number;
+  skipped: number;
+}
+
+/** Server-sent events on /jobs/{id}/events. */
+export type JobEvent =
+  | { event: "snapshot"; data: JobView }
+  | { event: "status"; data: JobView }
+  | { event: "begin"; data: { job_id: string; library: string; action: string; run_id: string; total: number; pending: number } }
+  | { event: "item"; data: { job_id: string; run_id: string; done: number; pending: number; written: number; unchanged: number; failed: number; title: string; status: string; error: string | null } }
+  | { event: "report"; data: { job_id: string; run_id: string; report: RunReport } }
+  | { event: "end"; data: { job_id: string; status: JobStatus; error: string | null; run_ids: string[]; reports: RunReport[] } };

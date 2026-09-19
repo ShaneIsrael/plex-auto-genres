@@ -137,6 +137,8 @@ class RunReport:
     provider_requests: int = 0
     duration_s: float = 0.0
     failures: list[tuple[str, str]] = field(default_factory=list)
+    #: True when the run was cancelled before every item was processed.
+    cancelled: bool = False
 
     @property
     def total(self) -> int:
@@ -157,4 +159,5 @@ class RunReport:
             "provider_requests": self.provider_requests,
             "duration_s": round(self.duration_s, 2),
             "failures": self.failures[:50],
+            "cancelled": self.cancelled,
         }

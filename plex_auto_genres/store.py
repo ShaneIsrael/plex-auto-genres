@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import threading
 import time
 import uuid
 from collections.abc import Iterable, Iterator
@@ -115,11 +116,21 @@ def _retry_after(attempts: int) -> float:
 
 
 class Store:
-    """Thin, synchronous SQLite wrapper. Safe to share across threads."""
+    """Thin, synchronous SQLite wrapper. Safe to share across threads.
+
+    One connection, guarded by a re-entrant lock. ``check_same_thread=False``
+    only tells the sqlite3 module to *allow* other threads in; it does not
+    make a connection safe for two threads to use at once -- the statement
+    cache and transaction state are unprotected, and the pipeline (writes in
+    worker threads, bookkeeping on the event loop) crashed the interpreter
+    the first time two of them overlapped. Every method takes the lock.
+    Contention is irrelevant at this scale; the writes are sub-millisecond.
+    """
 
     def __init__(self, path: str | Path = "logs/plex-auto-genres.db") -> None:
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        self._lock = threading.RLock()
         self._conn = sqlite3.connect(self.path, check_same_thread=False, timeout=30.0)
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA journal_mode=WAL")
@@ -133,7 +144,8 @@ class Store:
         self._conn.commit()
 
     def close(self) -> None:
-        self._conn.close()
+        with self._lock:
+            self._conn.close()
 
     def __enter__(self) -> "Store":
         return self
@@ -143,22 +155,29 @@ class Store:
 
     @contextmanager
     def _tx(self) -> Iterator[sqlite3.Connection]:
-        try:
+        with self._lock:
+            try:
+                yield self._conn
+                self._conn.commit()
+            except Exception:
+                self._conn.rollback()
+                raise
+
+    @contextmanager
+    def _read(self) -> Iterator[sqlite3.Connection]:
+        with self._lock:
             yield self._conn
-            self._conn.commit()
-        except Exception:
-            self._conn.rollback()
-            raise
 
     # -- media state ------------------------------------------------------
 
     def get_state(self, library: str, media_key: str) -> CachedState | None:
         """The cached result for one item, or ``None`` if it was never processed."""
-        row = self._conn.execute(
-            "SELECT status, fingerprint, attempts, updated_at, genres, last_error "
-            "FROM media_state WHERE library = ? AND media_key = ?",
-            (library, media_key),
-        ).fetchone()
+        with self._read() as conn:
+            row = conn.execute(
+                "SELECT status, fingerprint, attempts, updated_at, genres, last_error "
+                "FROM media_state WHERE library = ? AND media_key = ?",
+                (library, media_key),
+            ).fetchone()
         if row is None:
             return None
         return CachedState(
@@ -257,18 +276,20 @@ class Store:
         return cur.rowcount
 
     def failures(self, library: str, limit: int = 100) -> list[sqlite3.Row]:
-        return self._conn.execute(
-            "SELECT title, year, attempts, last_error, updated_at FROM media_state "
-            "WHERE library = ? AND status = 'failed' ORDER BY updated_at DESC LIMIT ?",
-            (library, limit),
-        ).fetchall()
+        with self._read() as conn:
+            return conn.execute(
+                "SELECT title, year, attempts, last_error, updated_at FROM media_state "
+                "WHERE library = ? AND status = 'failed' ORDER BY updated_at DESC LIMIT ?",
+                (library, limit),
+            ).fetchall()
 
     def stats(self, library: str) -> dict[str, int]:
         """Count of items per status for one library."""
-        rows = self._conn.execute(
-            "SELECT status, COUNT(*) AS n FROM media_state WHERE library = ? GROUP BY status",
-            (library,),
-        ).fetchall()
+        with self._read() as conn:
+            rows = conn.execute(
+                "SELECT status, COUNT(*) AS n FROM media_state WHERE library = ? GROUP BY status",
+                (library,),
+            ).fetchall()
         return {row["status"]: row["n"] for row in rows}
 
     # -- manual bindings --------------------------------------------------
@@ -299,10 +320,11 @@ class Store:
 
     def get_binding(self, library: str, media_key: str) -> tuple[str, ExternalId] | None:
         """The manual binding for an item, as ``(provider, id)``."""
-        row = self._conn.execute(
-            "SELECT provider, provider_id FROM bindings WHERE library = ? AND media_key = ?",
-            (library, media_key),
-        ).fetchone()
+        with self._read() as conn:
+            row = conn.execute(
+                "SELECT provider, provider_id FROM bindings WHERE library = ? AND media_key = ?",
+                (library, media_key),
+            ).fetchone()
         if row is None:
             return None
         return row["provider"], ExternalId(row["provider"], row["provider_id"])
@@ -317,11 +339,12 @@ class Store:
 
     def list_bindings(self, library: str | None = None) -> list[sqlite3.Row]:
         """Every binding, optionally narrowed to one library."""
-        if library:
-            return self._conn.execute(
-                "SELECT * FROM bindings WHERE library = ? ORDER BY media_key", (library,)
-            ).fetchall()
-        return self._conn.execute("SELECT * FROM bindings ORDER BY library, media_key").fetchall()
+        with self._read() as conn:
+            if library:
+                return conn.execute(
+                    "SELECT * FROM bindings WHERE library = ? ORDER BY media_key", (library,)
+                ).fetchall()
+            return conn.execute("SELECT * FROM bindings ORDER BY library, media_key").fetchall()
 
     # -- runs and undo ----------------------------------------------------
 
@@ -363,9 +386,10 @@ class Store:
             )
 
     def snapshots_for(self, run_id: str) -> list[sqlite3.Row]:
-        return self._conn.execute(
-            "SELECT * FROM snapshots WHERE run_id = ? ORDER BY id", (run_id,)
-        ).fetchall()
+        with self._read() as conn:
+            return conn.execute(
+                "SELECT * FROM snapshots WHERE run_id = ? ORDER BY id", (run_id,)
+            ).fetchall()
 
     def mark_undone(self, run_id: str) -> None:
         with self._tx() as conn:
@@ -373,25 +397,28 @@ class Store:
 
     def recent_runs(self, limit: int = 20, library: str | None = None) -> list[sqlite3.Row]:
         """Most recent runs, newest first."""
-        if library:
-            return self._conn.execute(
-                "SELECT * FROM runs WHERE library = ? ORDER BY started_at DESC LIMIT ?",
-                (library, limit),
+        with self._read() as conn:
+            if library:
+                return conn.execute(
+                    "SELECT * FROM runs WHERE library = ? ORDER BY started_at DESC LIMIT ?",
+                    (library, limit),
+                ).fetchall()
+            return conn.execute(
+                "SELECT * FROM runs ORDER BY started_at DESC LIMIT ?", (limit,)
             ).fetchall()
-        return self._conn.execute(
-            "SELECT * FROM runs ORDER BY started_at DESC LIMIT ?", (limit,)
-        ).fetchall()
 
     def get_run(self, run_id: str) -> sqlite3.Row | None:
-        return self._conn.execute("SELECT * FROM runs WHERE run_id = ?", (run_id,)).fetchone()
+        with self._read() as conn:
+            return conn.execute("SELECT * FROM runs WHERE run_id = ?", (run_id,)).fetchone()
 
     # -- generic cache ----------------------------------------------------
 
     def kv_get(self, key: str) -> str | None:
         """A cached value, or ``None`` when absent or expired."""
-        row = self._conn.execute(
-            "SELECT value, expires_at FROM kv WHERE key = ?", (key,)
-        ).fetchone()
+        with self._read() as conn:
+            row = conn.execute(
+                "SELECT value, expires_at FROM kv WHERE key = ?", (key,)
+            ).fetchone()
         if row is None:
             return None
         if row["expires_at"] is not None and row["expires_at"] < time.time():

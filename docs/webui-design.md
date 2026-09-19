@@ -247,8 +247,43 @@ Decisions taken while building it, for whoever picks up phase 2:
 - **No auth yet.** The compose file says so in a comment and binds nothing beyond the
   port; do not put this on the internet.
 
-### Phase 2 — next
+### Phase 2 — done
 
-Job manager (`asyncio.Task` per run, `Lock` per library), `POST /libraries/{name}/run`,
-`GET /jobs/{id}/events` as SSE, cancel, and `POST /jobs/{id}/undo`. The RunDetail page
-already has the disabled "Undo run" button and the "still running" copy in place.
+Shipped: `plex_auto_genres/jobs.py` (queue + worker + subscribers), the job/SSE/undo
+routes, and the UI controls (run menu per library, "Run all", live progress on cards and
+on the run page, cancel, undo behind a confirmation).
+
+Decisions taken, and one bug found on the way:
+
+- **One job at a time, globally** — not one lock per library as first sketched. The
+  provider rate limiters are per run; two concurrent runs would each assume the whole
+  Jikan/TMDB quota. A single FIFO worker is also exactly what the nightly pass always
+  did. Queued jobs are visible and cancellable.
+- **Jobs are ephemeral, runs are durable.** A job is in memory (last 50 kept) and
+  records the run ids it produced; `RunView.job_id` joins them while the job is
+  remembered. Nothing about jobs was added to SQLite, on purpose.
+- **Cancellation closes the run row.** `Pipeline._abandon` marks the report
+  `cancelled` and calls `finish_run` *before* waiting on in-flight items, so a second
+  cancel cannot leave the row dangling. Status derivation gained `cancelled`.
+- **The runner grew a `RunObserver` protocol** (`begin(run, action, run_id, total,
+  pending)`, `item`, `report`). The CLI's progress bar and the job manager are two
+  implementations; the bar now sizes itself to `pending`, which also fixed a v2 quirk
+  where it never reached 100% on a mostly cached library.
+- **SSE, not WebSockets.** `snapshot` on connect, then `begin` / `item` / `report` /
+  `end`, with a `: ping` comment every 15 s of silence. Late subscribers get the
+  snapshot rather than a replay, so a 5 000-item run does not replay 5 000 events.
+  The browser hook resyncs from the snapshot on every reconnect.
+- **Found and fixed: the Store was not thread-safe.** One SQLite connection shared with
+  `check_same_thread=False` while the writer ran in `asyncio.to_thread` and the loop
+  did bookkeeping. The interpreter segfaulted the first time two overlapped. Every
+  Store method now takes a re-entrant lock. This predates the web UI — the CLI had the
+  same race with a narrower window.
+- **`pytest-timeout`** is now a dev dependency with a 60 s default: the crash above
+  first presented as a run that never returned.
+
+### Phase 3 — next
+
+Config editing: `PUT /api/v1/config` validating through `AppConfig` before an atomic
+replace, preserving `//` comment keys (read the raw document alongside the parsed one),
+keeping a `.bak`, reloading in place; the form built from `/api/v1/config/schema` with
+RJSF and a `uiSchema` for ordering. Then bindings CRUD with a provider candidate search.

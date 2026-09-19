@@ -23,6 +23,7 @@ dependencies = [
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
+    "pytest-timeout>=2.3",
     "respx>=0.21",
     "pylint>=3.0",
     "pylint-pydantic>=0.3",
@@ -44,6 +45,8 @@ include = ["plex_auto_genres*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+# A hung job test must fail with a traceback, not stall CI.
+timeout = 60
 filterwarnings = ["error::DeprecationWarning:plex_auto_genres.*"]
 
 [tool.pylint.main]

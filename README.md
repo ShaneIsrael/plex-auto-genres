@@ -59,10 +59,15 @@ plex-auto-genres doctor
 
 ## Web UI
 
-`plex-auto-genres serve` hosts a read-only console on http://127.0.0.1:8095 — overview,
-run history with the last-forty-runs tape, libraries with coverage, manual bindings, and
-the config with the doctor checks. The Docker image runs it by default and keeps the
-nightly scheduler in the same process.
+`plex-auto-genres serve` hosts the console on http://127.0.0.1:8095 — overview, run
+history with the last-forty-runs tape, libraries with coverage, manual bindings, and the
+config with the doctor checks. From there you can **start a run** for one library or all
+of them (normal, dry, or forced), **watch it live**, **cancel** it, and **undo** any
+finished run. The Docker image runs the console by default and keeps the nightly
+scheduler in the same process; scheduled passes show up as jobs like any other.
+
+Jobs run one at a time, in the order they were queued: the provider rate limits live
+inside each run, so two at once would trip 429s and gain nothing.
 
 ```bash
 plex-auto-genres serve --cron "0 1 * * *"      # UI + API + scheduler
@@ -77,8 +82,12 @@ plex-auto-genres serve --host 0.0.0.0           # reachable from the LAN
 The API is documented at `/api/docs`. **There is no authentication yet** — keep the port
 on your LAN or behind a reverse proxy that adds it.
 
-Writing from the UI (running jobs, editing config, adding bindings) is the next phase;
-see [docs/webui-design.md](docs/webui-design.md).
+Editing the config and bindings from the UI is the next phase; see
+[docs/webui-design.md](docs/webui-design.md).
+
+Everything the UI does is plain HTTP — `POST /api/v1/libraries/{name}/run`,
+`GET /api/v1/jobs/{id}/events` (server-sent events), `POST /api/v1/jobs/{id}/cancel`,
+`POST /api/v1/runs/{id}/undo` — so it scripts as easily as the CLI.
 
 ---
 

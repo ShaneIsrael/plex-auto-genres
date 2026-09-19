@@ -309,3 +309,250 @@ def test_an_explicit_static_dir_without_a_build_does_not_fall_back(tmp_path, mon
 
     assert app_module.resolve_static_dir(tmp_path / "wrong") is None
     assert app_module.resolve_static_dir(None) == built
+
+
+# -- jobs, SSE, undo (phase 2) ----------------------------------------------
+
+
+def _job_app(tmp_path, config_file, monkeypatch):
+    """An app whose fake Plex has items, so jobs actually process something."""
+    from .conftest import FakePlexItem
+    from .test_pipeline import FakeServer
+
+    class Section:
+        def __init__(self, key, title, items):
+            self.key, self.title, self.type, self.agent = key, title, "show", "hama"
+            self._items, self.totalSize = items, len(items)
+
+        def all(self):
+            return self._items
+
+        def collections(self):
+            return []
+
+    class Server(FakeServer):
+        def __init__(self, items):
+            super().__init__(items)
+            self._sec = Section(1, "Animes", items)
+            self.library = type("L", (), {
+                "section": lambda _s, name: self._sec,
+                "sections": lambda _s: [self._sec],
+            })()
+            self.friendlyName, self.version = "Homelab", "1.0"
+
+    items = []
+    for k, title in ((1, "One"), (2, "Two")):
+        h = FakePlexItem(k, title, 2000 + k, genres=("Old",))
+        h.guids = [type("G", (), {"id": f"mal://{k}"})()]
+        items.append(h)
+    server = Server(items)
+    monkeypatch.setenv("PLEX_BASE_URL", "http://plex:32400")
+    monkeypatch.setenv("PLEX_TOKEN", "t")
+    monkeypatch.setattr(state_module.plex_client, "connect", lambda s: server)
+    return create_app(config_file, tmp_path / "state.db"), server
+
+
+def _jikan_ok(request):
+    import httpx as _httpx
+
+    return _httpx.Response(200, json={"data": {
+        "mal_id": 1, "title": "Anime", "genres": [{"name": "Action"}]}})
+
+
+def _wait_job(c, job_id, timeout=5.0):
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        body = c.get(f"/api/v1/jobs/{job_id}").json()
+        if body["status"] not in ("queued", "running"):
+            return body
+        time.sleep(0.02)
+    raise AssertionError("job did not finish")
+
+
+def test_start_job_for_one_library_and_watch_it_finish(tmp_path, config_file, monkeypatch):
+    import respx as _respx
+
+    app, server = _job_app(tmp_path, config_file, monkeypatch)
+    with _respx.mock:
+        _respx.get(url__regex=r"https://api\.jikan\.moe/v4/anime/\d+").mock(side_effect=_jikan_ok)
+        with TestClient(app) as c:
+            response = c.post("/api/v1/libraries/Animes/run", json={"dry_run": False})
+            assert response.status_code == 202
+            job = response.json()
+            assert job["status"] in ("queued", "running") and job["library"] == "Animes"
+
+            done = _wait_job(c, job["job_id"])
+            assert done["status"] == "done"
+            assert done["progress"]["done"] == 2 and done["reports"][0]["written"] == 2
+
+            run = c.get(f"/api/v1/runs/{done['run_ids'][0]}").json()
+            assert run["status"] == "ok" and run["job_id"] == job["job_id"]
+            assert server._section.all()[0].last_tags == ["Action"]   # clearGenres: replace
+
+
+def test_starting_a_second_job_for_a_busy_library_is_a_409(tmp_path, config_file, monkeypatch):
+    from plex_auto_genres.jobs import JobManager
+
+    async def block(self, job):
+        import asyncio as _a
+        await _a.sleep(0.5)
+
+    monkeypatch.setattr(JobManager, "_execute", block)
+    app, _ = _job_app(tmp_path, config_file, monkeypatch)
+    with TestClient(app) as c:
+        assert c.post("/api/v1/libraries/Animes/run").status_code == 202
+        dup = c.post("/api/v1/libraries/Animes/run")
+        assert dup.status_code == 409
+        assert "already queued or running" in dup.json()["detail"]
+        # POST /jobs is all-or-nothing
+        batch = c.post("/api/v1/jobs", json={"libraries": ["Films", "Animes"]})
+        assert batch.status_code == 409
+        assert c.get("/api/v1/jobs").json()[0]["library"] == "Animes"
+
+
+def test_unknown_library_is_a_404(tmp_path, config_file, monkeypatch):
+    app, _ = _job_app(tmp_path, config_file, monkeypatch)
+    with TestClient(app) as c:
+        assert c.post("/api/v1/libraries/Nope/run").status_code == 404
+
+
+def test_start_all_enabled_libraries(tmp_path, config_file, monkeypatch):
+    from plex_auto_genres.jobs import JobManager
+
+    async def quick(self, job):
+        return None
+
+    monkeypatch.setattr(JobManager, "_execute", quick)
+    app, _ = _job_app(tmp_path, config_file, monkeypatch)
+    with TestClient(app) as c:
+        response = c.post("/api/v1/jobs", json={})
+        assert response.status_code == 202
+        assert [j["library"] for j in response.json()] == ["Animes"]   # Films is disabled
+
+
+def test_cancel_a_running_job_and_refuse_a_finished_one(tmp_path, config_file, monkeypatch):
+    from plex_auto_genres.jobs import JobManager
+
+    async def block(self, job):
+        import asyncio as _a
+        await _a.sleep(5)
+
+    monkeypatch.setattr(JobManager, "_execute", block)
+    app, _ = _job_app(tmp_path, config_file, monkeypatch)
+    with TestClient(app) as c:
+        job = c.post("/api/v1/libraries/Animes/run").json()
+        time.sleep(0.05)
+        cancelled = c.post(f"/api/v1/jobs/{job['job_id']}/cancel")
+        assert cancelled.status_code == 200
+        done = _wait_job(c, job["job_id"])
+        assert done["status"] == "cancelled"
+        again = c.post(f"/api/v1/jobs/{job['job_id']}/cancel")
+        assert again.status_code == 409
+
+
+def test_sse_stream_ends_with_an_end_event(tmp_path, config_file, monkeypatch):
+    import asyncio as _a
+
+    from plex_auto_genres.models import ProviderResult
+    from plex_auto_genres.providers.jikan import JikanProvider
+
+    async def slow_resolve(self, request):
+        await _a.sleep(0.15)
+        return ProviderResult(provider="jikan", provider_id="1", title=request.title,
+                              genres=["Action"])
+
+    monkeypatch.setattr(JikanProvider, "resolve", slow_resolve)
+    app, _ = _job_app(tmp_path, config_file, monkeypatch)
+    if True:
+        with TestClient(app) as c:
+            job = c.post("/api/v1/libraries/Animes/run").json()
+            events = []
+            with c.stream("GET", f"/api/v1/jobs/{job['job_id']}/events") as stream:
+                assert stream.headers["content-type"].startswith("text/event-stream")
+                current = None
+                for line in stream.iter_lines():
+                    if line.startswith("event: "):
+                        current = line[7:]
+                    elif line.startswith("data: ") and current:
+                        events.append((current, json.loads(line[6:])))
+                        if current == "end":
+                            break
+            names = [e for e, _ in events]
+            assert names[0] == "snapshot" and names[-1] == "end"
+            assert "begin" in names and "item" in names and "report" in names
+            assert events[-1][1]["status"] == "done"
+
+
+def test_sse_for_an_unknown_job_is_a_404(client):
+    assert client.get("/api/v1/jobs/nope/events").status_code == 404
+
+
+def test_undo_from_the_api(tmp_path, config_file, monkeypatch):
+    import respx as _respx
+
+    app, server = _job_app(tmp_path, config_file, monkeypatch)
+    with _respx.mock:
+        _respx.get(url__regex=r"https://api\.jikan\.moe/v4/anime/\d+").mock(side_effect=_jikan_ok)
+        with TestClient(app) as c:
+            job = c.post("/api/v1/libraries/Animes/run").json()
+            done = _wait_job(c, job["job_id"])
+            run_id = done["run_ids"][0]
+            first = server._section.all()[0]
+            assert first.last_tags == ["Action"]
+
+            response = c.post(f"/api/v1/runs/{run_id}/undo")
+            assert response.status_code == 200
+            assert response.json() == {"run_id": run_id, "restored": 2, "skipped": 0}
+            assert first.last_tags == ["Old"]
+            assert c.get(f"/api/v1/runs/{run_id}").json()["status"] == "undone"
+
+            assert c.post(f"/api/v1/runs/{run_id}/undo").status_code == 409   # twice
+            assert c.post("/api/v1/runs/nope/undo").status_code == 404
+
+
+def test_undo_refuses_while_a_job_runs_for_that_library(tmp_path, config_file, monkeypatch):
+    from plex_auto_genres.jobs import JobManager
+
+    async def block(self, job):
+        import asyncio as _a
+        await _a.sleep(1)
+
+    monkeypatch.setattr(JobManager, "_execute", block)
+    app, _ = _job_app(tmp_path, config_file, monkeypatch)
+    store = Store(tmp_path / "state.db")
+    run_id = _seed_run(store, "Animes")
+    store.add_snapshot(run_id, "Animes", 1, "One", "genre", ["Old"], ["Old", "Action"])
+    store.close()
+    with TestClient(app) as c:
+        c.post("/api/v1/libraries/Animes/run")
+        time.sleep(0.05)
+        response = c.post(f"/api/v1/runs/{run_id}/undo")
+        assert response.status_code == 409
+        assert "job is running" in response.json()["detail"]
+
+
+def test_undo_with_nothing_recorded_is_a_400(client, tmp_path):
+    store = Store(tmp_path / "state.db")
+    run_id = _seed_run(store, "Animes")
+    store.close()
+    response = client.post(f"/api/v1/runs/{run_id}/undo")
+    assert response.status_code == 400
+
+
+def test_scheduled_pass_goes_through_the_job_queue(tmp_path, config_file, monkeypatch):
+    """With --cron and --now, the boot-time pass is a queued job, not a bare call."""
+    from plex_auto_genres.jobs import JobManager
+
+    async def quick(self, job):
+        return None
+
+    monkeypatch.setattr(JobManager, "_execute", quick)
+    monkeypatch.setenv("PLEX_BASE_URL", "http://plex:32400")
+    monkeypatch.setenv("PLEX_TOKEN", "t")
+    monkeypatch.setattr(state_module.plex_client, "connect", lambda s: FakePlex())
+    app = create_app(config_file, tmp_path / "state.db", cron="0 1 * * *", run_on_start=True)
+    with TestClient(app) as c:
+        time.sleep(0.1)
+        jobs = c.get("/api/v1/jobs").json()
+        assert [j["source"] for j in jobs] == ["schedule"]
+        assert jobs[0]["library"] == "Animes"

@@ -1,7 +1,9 @@
 import { Library } from "lucide-react";
 import { Link } from "react-router-dom";
-import { useHealth, useLibraries } from "../api/client";
-import type { LibraryView } from "../api/types";
+import { isActive, useHealth, useJobs, useLibraries } from "../api/client";
+import type { JobView, LibraryView } from "../api/types";
+import { LiveProgress } from "../components/LiveProgress";
+import { RunMenu } from "../components/RunMenu";
 import { Empty, ErrorBlock } from "../components/Empty";
 import { PageHeader } from "../components/Panel";
 import { Skeleton } from "../components/Skeleton";
@@ -11,7 +13,10 @@ import { int, relTime } from "../lib/format";
 export default function Libraries() {
   const libraries = useLibraries();
   const health = useHealth();
+  const jobs = useJobs();
   const plexDown = health.data ? !health.data.plex.reachable : false;
+  const activeFor = (name: string) =>
+    jobs.data?.find((j) => isActive(j) && j.library.toLowerCase() === name.toLowerCase()) ?? null;
 
   return (
     <div className="page">
@@ -32,7 +37,7 @@ export default function Libraries() {
       ) : (
         <div className="card-grid">
           {libraries.data.map((lib, i) => (
-            <LibraryCard key={lib.name} lib={lib} index={i + 1} />
+            <LibraryCard key={lib.name} lib={lib} index={i + 1} active={activeFor(lib.name)} />
           ))}
         </div>
       )}
@@ -40,7 +45,7 @@ export default function Libraries() {
   );
 }
 
-function LibraryCard({ lib, index }: { lib: LibraryView; index: number }) {
+function LibraryCard({ lib, index, active }: { lib: LibraryView; index: number; active: JobView | null }) {
   const ok = lib.stats.ok ?? 0;
   const failed = lib.stats.failed ?? 0;
   const total = lib.plex?.item_count ?? null;
@@ -86,13 +91,23 @@ function LibraryCard({ lib, index }: { lib: LibraryView; index: number }) {
           )}
 
           <footer className="card__foot">
-            {lib.last_run ? (
-              <Link to={`/runs/${lib.last_run.run_id}`} className="card__lastrun">
-                <StatusDot tone={toneForRun(lib.last_run.status)} label={`${RUN_STATUS_LABEL[lib.last_run.status]} · ${relTime(lib.last_run.started_at)}`} />
-              </Link>
-            ) : (
-              <span className="faint mono">never run</span>
-            )}
+            {active ? (
+              <LiveProgress compact progress={active.progress} status={active.status} />
+            ) : null}
+            <div className="card__actions" style={active ? { marginTop: 12 } : undefined}>
+              {active ? (
+                <Link to={active.progress.run_id ? `/runs/${active.progress.run_id}` : "/runs"} className="card__lastrun">
+                  <StatusDot tone={active.status === "running" ? "running" : "muted"} label={active.status === "running" ? "running now" : "queued"} />
+                </Link>
+              ) : lib.last_run ? (
+                <Link to={`/runs/${lib.last_run.run_id}`} className="card__lastrun">
+                  <StatusDot tone={toneForRun(lib.last_run.status)} label={`${RUN_STATUS_LABEL[lib.last_run.status]} · ${relTime(lib.last_run.started_at)}`} />
+                </Link>
+              ) : (
+                <span className="faint mono">never run</span>
+              )}
+              <RunMenu library={lib.name} active={active} />
+            </div>
           </footer>
         </>
       ) : (

@@ -7,12 +7,15 @@ import json
 import time
 
 from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi.responses import StreamingResponse
 
 from .. import __version__
 from ..config import config_json_schema
 from ..doctor import run_doctor
 from ..errors import ConfigError, PlexConnectionError
+from ..jobs import Job, JobConflict, JobError, JobOptions
 from ..models import MediaType
+from ..plexsvc.writer import undo_run
 from . import schemas
 from .state import AppState
 
@@ -30,10 +33,12 @@ def _config_or_503(state: AppState):
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
-def _run_view(row, server_started_at: float) -> schemas.RunView:
+def _run_view(row, server_started_at: float, job: Job | None = None) -> schemas.RunView:
     report = json.loads(row["report"]) if row["report"] else None
     if row["undone_at"]:
         status = "undone"
+    elif report and report.get("cancelled"):
+        status = "cancelled"
     elif row["finished_at"] is None:
         # A run with no finish time that predates this process cannot still
         # be running; the process that owned it is gone.
@@ -56,7 +61,12 @@ def _run_view(row, server_started_at: float) -> schemas.RunView:
         finished_at=row["finished_at"],
         undone_at=row["undone_at"],
         report=report,
+        job_id=job.job_id if job else None,
     )
+
+
+def _job_view(job: Job) -> schemas.JobView:
+    return schemas.JobView.model_validate(job.snapshot())
 
 
 @router.get("/health", response_model=schemas.Health)
@@ -144,7 +154,7 @@ async def libraries(request: Request) -> list[schemas.LibraryView]:
                 pass
             sections[section.title.casefold()] = schemas.PlexSection(
                 key=int(section.key),
-                section_type=section.type,
+                section_type=getattr(section, "type", "unknown"),
                 item_count=count,
                 agent=getattr(section, "agent", None),
             )
@@ -167,7 +177,10 @@ async def libraries(request: Request) -> list[schemas.LibraryView]:
             clearGenres=entry.clear_genres,
             plex=sections.get(key),
             stats=state.store.stats(entry.library),
-            last_run=_run_view(last[0], state.started_at) if last else None,
+            last_run=(
+                _run_view(last[0], state.started_at, state.jobs.job_for_run(last[0]["run_id"]))
+                if last else None
+            ),
         ))
 
     for key, section in sections.items():
@@ -196,7 +209,9 @@ async def runs(
     """Run history, newest first."""
     state = _state(request)
     rows = state.store.recent_runs(limit, library)
-    return [_run_view(row, state.started_at) for row in rows]
+    return [
+        _run_view(row, state.started_at, state.jobs.job_for_run(row["run_id"])) for row in rows
+    ]
 
 
 @router.get("/runs/{run_id}", response_model=schemas.RunView)
@@ -206,7 +221,33 @@ async def run(request: Request, run_id: str) -> schemas.RunView:
     row = state.store.get_run(run_id)
     if row is None:
         raise HTTPException(status_code=404, detail=f"No run {run_id!r}.")
-    return _run_view(row, state.started_at)
+    return _run_view(row, state.started_at, state.jobs.job_for_run(run_id))
+
+
+@router.post("/runs/{run_id}/undo", response_model=schemas.UndoResult)
+async def undo(request: Request, run_id: str) -> schemas.UndoResult:
+    """Restore the tags a run overwrote."""
+    state = _state(request)
+    row = state.store.get_run(run_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail=f"No run {run_id!r}.")
+    if row["undone_at"]:
+        raise HTTPException(status_code=409, detail="That run was already undone.")
+    if state.jobs.active_for(row["library"]) is not None:
+        raise HTTPException(
+            status_code=409,
+            detail=f"A job is running for {row['library']!r}; wait for it or cancel it first.",
+        )
+    if not state.store.snapshots_for(run_id):
+        raise HTTPException(
+            status_code=400, detail="That run recorded no changes, so there is nothing to undo."
+        )
+    try:
+        server = await state.plex()
+    except PlexConnectionError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    restored, skipped = await asyncio.to_thread(undo_run, server, state.store, run_id)
+    return schemas.UndoResult(run_id=run_id, restored=restored, skipped=skipped)
 
 
 @router.get("/bindings", response_model=list[schemas.BindingView])
@@ -219,3 +260,100 @@ async def bindings(request: Request, library: str | None = None) -> list[schemas
 async def media_types() -> list[str]:
     """The library types the config accepts."""
     return [t.value for t in MediaType]
+
+
+# -- jobs ------------------------------------------------------------------
+
+
+def _options(body: schemas.RunOptions, source: str = "api") -> JobOptions:
+    return JobOptions(
+        dry_run=body.dry_run, force=body.force, only=tuple(body.only), source=source
+    )
+
+
+@router.get("/jobs", response_model=list[schemas.JobView])
+async def jobs(request: Request) -> list[schemas.JobView]:
+    """Queued and running jobs first, then recently finished ones."""
+    return [_job_view(job) for job in _state(request).jobs.list()]
+
+
+@router.post("/jobs", response_model=list[schemas.JobView], status_code=202)
+async def start_jobs(request: Request, body: schemas.StartJobs) -> list[schemas.JobView]:
+    """Queue jobs for the named libraries, or for every enabled one."""
+    state = _state(request)
+    _config_or_503(state)
+    options = _options(body)
+    try:
+        if body.libraries is None:
+            created = state.jobs.enqueue_all(options)
+        else:
+            # All or nothing: check for conflicts before queueing anything.
+            for name in body.libraries:
+                if state.jobs.active_for(name) is not None:
+                    raise JobConflict(f"A job for {name!r} is already queued or running.")
+            created = [state.jobs.enqueue(name, options) for name in body.libraries]
+    except JobConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except JobError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return [_job_view(job) for job in created]
+
+
+@router.post("/libraries/{name}/run", response_model=schemas.JobView, status_code=202)
+async def run_library(
+    request: Request, name: str, body: schemas.RunOptions | None = None
+) -> schemas.JobView:
+    """Queue a job for one library."""
+    state = _state(request)
+    _config_or_503(state)
+    try:
+        job = state.jobs.enqueue(name, _options(body or schemas.RunOptions()))
+    except JobConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except JobError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return _job_view(job)
+
+
+@router.get("/jobs/{job_id}", response_model=schemas.JobView)
+async def get_job(request: Request, job_id: str) -> schemas.JobView:
+    """One job by id."""
+    found = _state(request).jobs.get(job_id)
+    if found is None:
+        raise HTTPException(status_code=404, detail=f"No job {job_id!r}.")
+    return _job_view(found)
+
+
+@router.post("/jobs/{job_id}/cancel", response_model=schemas.JobView)
+async def cancel_job(request: Request, job_id: str) -> schemas.JobView:
+    """Cancel a queued or running job."""
+    state = _state(request)
+    found = state.jobs.get(job_id)
+    if found is None:
+        raise HTTPException(status_code=404, detail=f"No job {job_id!r}.")
+    if not found.active:
+        raise HTTPException(status_code=409, detail=f"Job {job_id!r} already {found.status}.")
+    await state.jobs.cancel(job_id)
+    return _job_view(found)
+
+
+@router.get("/jobs/{job_id}/events", include_in_schema=False)
+async def job_events(request: Request, job_id: str) -> StreamingResponse:
+    """Server-sent events: a snapshot, then begin/item/report events, then end."""
+    state = _state(request)
+    if state.jobs.get(job_id) is None:
+        raise HTTPException(status_code=404, detail=f"No job {job_id!r}.")
+
+    async def stream():
+        yield "retry: 3000\n\n"
+        async for event, data in state.jobs.subscribe(job_id):
+            if event == "ping":
+                yield ": ping\n\n"
+                continue
+            yield f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(
+        stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )

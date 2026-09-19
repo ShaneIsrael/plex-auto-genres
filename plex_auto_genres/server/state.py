@@ -10,6 +10,7 @@ from pathlib import Path
 
 from ..config import AppConfig, load_config
 from ..errors import ConfigError, PlexConnectionError
+from ..jobs import JobManager
 from ..plexsvc import client as plex_client
 from ..store import Store
 
@@ -30,13 +31,21 @@ class PlexLink:
 class AppState:
     """Owned by the app lifespan; handed to routes via ``request.app.state``."""
 
-    def __init__(self, config_path: str | Path, db_path: str | Path, *, plex_ttl_s: float = 60.0):
+    def __init__(
+        self,
+        config_path: str | Path,
+        db_path: str | Path,
+        *,
+        plex_ttl_s: float = 60.0,
+        posters_dir: str | Path = "posters",
+    ):
         self.config_path = Path(config_path)
         self.db_path = Path(db_path)
         self.store = Store(self.db_path)
         self.started_at = time.time()
         self.scheduler_cron: str | None = None
         self.scheduler_next: float | None = None
+        self.jobs = JobManager(self.store, self.config, self.plex, posters_dir=posters_dir)
 
         self._config: AppConfig | None = None
         self._config_mtime: float | None = None

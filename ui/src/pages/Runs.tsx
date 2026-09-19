@@ -19,7 +19,7 @@ export default function Runs() {
       <PageHeader
         eyebrow="02 · Runs"
         title="History"
-        lede="Every run is recorded with what it wrote, and can be undone from the CLI."
+        lede="Every run is recorded with what it wrote, and can be undone from its detail page."
         actions={
           <label className="field field--inline">
             <span className="label">Library</span>
@@ -39,8 +39,8 @@ export default function Runs() {
         ) : runs.isError ? (
           <ErrorBlock error={runs.error} onRetry={() => runs.refetch()} />
         ) : runs.data.length === 0 ? (
-          <Empty icon={<History size={28} strokeWidth={1.5} />} title={library ? `No runs for ${library}` : "No runs yet"}>
-            Runs appear here as soon as the scheduler or <code>plex-auto-genres run</code> executes.
+          <Empty icon={<History size={28} strokeWidth={1.5} />} title={library ? `No runs for ${library}` : "No runs yet"} action={{ to: "/libraries", label: "Go to libraries" }}>
+            Runs appear here as soon as a job executes — start one from Libraries.
           </Empty>
         ) : (
           <div className="table-wrap">

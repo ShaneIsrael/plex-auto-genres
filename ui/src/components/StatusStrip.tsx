@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { useDoctor, useHealth, useRuns } from "../api/client";
+import { isActive, useDoctor, useHealth, useJobs, useRuns } from "../api/client";
 import { relTime } from "../lib/format";
 import { StatusDot, RUN_STATUS_LABEL, toneForRun } from "./StatusDot";
 
@@ -8,10 +8,12 @@ export function StatusStrip() {
   const health = useHealth();
   const doctor = useDoctor();
   const runs = useRuns(1);
+  const jobs = useJobs();
 
   const plex = health.data?.plex;
   const last = runs.data?.[0];
   const doc = doctor.data;
+  const active = jobs.data?.find((j) => j.status === "running") ?? jobs.data?.find(isActive) ?? null;
 
   return (
     <div className="strip" role="region" aria-label="System status">
@@ -26,9 +28,21 @@ export function StatusStrip() {
         )}
       </Link>
 
-      <Link to={last ? `/runs/${last.run_id}` : "/runs"} className="strip__cell">
-        <span className="label">Last run</span>
-        {runs.isPending ? (
+      <Link
+        to={active?.progress.run_id ? `/runs/${active.progress.run_id}` : last ? `/runs/${last.run_id}` : "/runs"}
+        className="strip__cell"
+      >
+        <span className="label">{active ? "Job" : "Last run"}</span>
+        {active ? (
+          <StatusDot
+            tone={active.status === "running" ? "running" : "muted"}
+            label={
+              active.status === "running"
+                ? `${active.library} · ${active.progress.pending ? `${active.progress.done}/${active.progress.pending}` : active.progress.action ?? "starting"}`
+                : `${active.library} · queued`
+            }
+          />
+        ) : runs.isPending ? (
           <StatusDot tone="muted" label="…" />
         ) : last ? (
           <StatusDot

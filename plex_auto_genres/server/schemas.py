@@ -71,7 +71,9 @@ class PlexSection(BaseModel):
     agent: str | None = None
 
 
-RunStatus = Literal["running", "interrupted", "ok", "partial", "failed", "undone"]
+RunStatus = Literal["running", "interrupted", "ok", "partial", "failed", "undone", "cancelled"]
+JobStatus = Literal["queued", "running", "done", "failed", "cancelled"]
+Action = Literal["tags", "posters", "sort", "ratings", "rating-collections"]
 
 
 class RunView(BaseModel):
@@ -86,6 +88,8 @@ class RunView(BaseModel):
     finished_at: float | None = None
     undone_at: float | None = None
     report: dict[str, Any] | None = None
+    #: The job that produced this run, while that job is still remembered.
+    job_id: str | None = None
 
 
 class LibraryView(BaseModel):
@@ -123,3 +127,62 @@ class Problem(BaseModel):
     title: str
     status: int
     detail: str | None = None
+
+
+class JobProgress(BaseModel):
+    """Where a job's current action stands."""
+
+    action: str | None = None
+    run_id: str | None = None
+    total: int = 0
+    pending: int = 0
+    done: int = 0
+    written: int = 0
+    unchanged: int = 0
+    failed: int = 0
+    title: str | None = None
+
+
+class JobView(BaseModel):
+    """A queued, running or recently finished job."""
+
+    job_id: str
+    library: str
+    status: JobStatus
+    source: str
+    dry_run: bool
+    force: bool
+    only: list[str]
+    created_at: float
+    started_at: float | None = None
+    finished_at: float | None = None
+    error: str | None = None
+    run_ids: list[str]
+    progress: JobProgress
+    reports: list[dict[str, Any]]
+
+
+class RunOptions(BaseModel):
+    """Options for a manually started job. Mirrors the CLI flags."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    dry_run: bool = Field(default=False, description="Report what would change; write nothing.")
+    force: bool = Field(default=False, description="Ignore the cache and reprocess every item.")
+    only: list[Action] = Field(default_factory=list, description="Run only these actions.")
+
+
+class StartJobs(RunOptions):
+    """Start jobs for several libraries at once."""
+
+    libraries: list[str] | None = Field(
+        default=None, description="Library names, or null for every enabled library."
+    )
+
+
+class UndoResult(BaseModel):
+    """Outcome of restoring a run's previous tags."""
+
+    run_id: str
+    restored: int
+    skipped: int

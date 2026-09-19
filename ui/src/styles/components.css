@@ -677,3 +677,353 @@ a.tape__cell:focus-visible {
   border-radius: 2px;
   background: var(--cell);
 }
+
+/* ---- buttons: sizes and the danger variant --------------------------- */
+
+.button--sm {
+  min-height: 34px;
+  padding: 0 12px;
+  font-size: var(--fs-12);
+}
+
+.button--danger {
+  background: var(--fail);
+  color: #1a0505;
+}
+
+.button svg {
+  flex: 0 0 auto;
+}
+
+/* ---- run menu: primary action + a <details> popover ------------------ */
+
+.runmenu {
+  display: inline-flex;
+  align-items: stretch;
+  position: relative;
+}
+
+/* A card whose run menu is open must paint above its later siblings. */
+.card:has(.runmenu__more[open]) {
+  position: relative;
+  z-index: 2;
+}
+
+.runmenu__main {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.runmenu__more {
+  position: relative;
+}
+
+.runmenu__toggle {
+  min-width: 34px;
+  padding: 0 6px;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  border-left: 1px solid rgba(0, 0, 0, 0.25);
+  list-style: none;
+  justify-content: center;
+}
+
+.runmenu__toggle::-webkit-details-marker {
+  display: none;
+}
+
+.runmenu__pop {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: var(--z-overlay);
+  min-width: 260px;
+  padding: 6px;
+  background: var(--surface-2);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  display: grid;
+  gap: 2px;
+  animation: reveal var(--dur-fast) var(--ease-out) both;
+}
+
+.runmenu__pop button {
+  display: grid;
+  gap: 2px;
+  text-align: left;
+  width: 100%;
+  min-height: 44px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: var(--fs-13);
+  color: var(--ink);
+}
+
+.runmenu__pop button:hover,
+.runmenu__pop button:focus-visible {
+  background: var(--surface-3);
+}
+
+.runmenu__pop button .faint {
+  font-size: var(--fs-12);
+  font-family: var(--font-sans);
+}
+
+/* ---- live progress --------------------------------------------------- */
+
+.live {
+  display: grid;
+  gap: 8px;
+}
+
+.live__row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-size: var(--fs-13);
+}
+
+.live__label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-variant-numeric: tabular-nums;
+}
+
+.live__action {
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--amber-dim);
+  color: var(--amber-ink);
+  font-size: var(--fs-12);
+}
+
+.live--queued .live__action,
+.live--cancelled .live__action {
+  background: var(--muted-dim);
+  color: var(--ink-2);
+}
+
+.live__counts {
+  font-size: var(--fs-12);
+}
+
+.live__bar {
+  position: relative;
+  height: 6px;
+  background: var(--surface-3);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.live__fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: 3px;
+  background: var(--amber);
+  transition: width var(--dur) var(--ease-out);
+}
+
+.live--running .live__fill {
+  background: linear-gradient(90deg, var(--amber), var(--amber-ink));
+  background-size: 200% 100%;
+  animation: shimmer 1.6s linear infinite;
+}
+
+.live--queued .live__fill {
+  background: var(--ink-4);
+  width: 100% !important;
+  opacity: 0.35;
+}
+
+.live--done .live__fill {
+  background: var(--ok);
+}
+
+.live--failed .live__fill,
+.live--cancelled .live__fill {
+  background: var(--fail);
+}
+
+.live__title {
+  font-size: var(--fs-12);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.live--compact {
+  gap: 6px;
+}
+
+.live--compact .live__bar {
+  height: 4px;
+}
+
+/* ---- jobs panel ------------------------------------------------------- */
+
+.jobs {
+  display: grid;
+  gap: 12px;
+}
+
+.job {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px 16px;
+  align-items: center;
+  padding: 12px 0;
+  border-top: 1px solid var(--line);
+}
+
+.job:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.job__who {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.job__lib {
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.job__live {
+  grid-column: 1 / -1;
+}
+
+/* ---- toasts ------------------------------------------------------------ */
+
+.toasts {
+  position: fixed;
+  right: 16px;
+  bottom: calc(72px + env(safe-area-inset-bottom, 0));
+  z-index: var(--z-overlay);
+  display: grid;
+  gap: 8px;
+  width: min(360px, calc(100vw - 32px));
+  pointer-events: none;
+}
+
+@media (min-width: 1024px) {
+  .toasts {
+    bottom: 24px;
+    right: 24px;
+  }
+}
+
+.toast {
+  pointer-events: auto;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 8px 12px 14px;
+  background: var(--surface-2);
+  border: 1px solid var(--line-strong);
+  border-left: 3px solid var(--toast-color, var(--ink-3));
+  border-radius: var(--radius);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  animation: reveal var(--dur) var(--ease-out) both;
+}
+
+.toast--ok { --toast-color: var(--ok); }
+.toast--warn { --toast-color: var(--amber); }
+.toast--fail { --toast-color: var(--fail); }
+.toast--info { --toast-color: var(--teal); }
+
+.toast__text {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.toast__title {
+  font-family: var(--font-mono);
+  font-size: var(--fs-13);
+}
+
+.toast__body {
+  font-size: var(--fs-13);
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}
+
+.toast__close {
+  flex: 0 0 auto;
+  width: 36px;
+  height: 36px;
+  margin: -6px -2px -6px 0;
+  border-radius: var(--radius-sm);
+  color: var(--ink-3);
+  font-size: 18px;
+  line-height: 1;
+}
+
+.toast__close:hover {
+  background: var(--surface-3);
+  color: var(--ink);
+}
+
+/* ---- confirm dialog ------------------------------------------------------ */
+
+.dialog {
+  width: min(440px, calc(100vw - 32px));
+  padding: 24px;
+  background: var(--surface-2);
+  color: var(--ink);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.6);
+}
+
+.dialog[open] {
+  animation: reveal var(--dur) var(--ease-out) both;
+}
+
+.dialog::backdrop {
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(2px);
+}
+
+.dialog__form {
+  display: grid;
+  gap: 14px;
+}
+
+.dialog__title {
+  font-size: var(--fs-20);
+}
+
+.dialog__body {
+  font-size: var(--fs-14);
+  line-height: 1.55;
+}
+
+.dialog__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+/* ---- misc -------------------------------------------------------------- */
+
+.card__actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}

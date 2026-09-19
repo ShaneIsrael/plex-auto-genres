@@ -1,6 +1,9 @@
-import { Activity, AlertTriangle } from "lucide-react";
+import { Activity, AlertTriangle, Play, Square } from "lucide-react";
 import { Link } from "react-router-dom";
-import { useDoctor, useHealth, useLibraries, useRuns } from "../api/client";
+import { isActive, useCancelJob, useDoctor, useHealth, useJobs, useLibraries, useRuns, useStartJobs } from "../api/client";
+import { useConfirm } from "../components/ConfirmDialog";
+import { LiveProgress } from "../components/LiveProgress";
+import { useToast } from "../components/Toast";
 import type { LibraryView, RunView } from "../api/types";
 import { Empty, ErrorBlock } from "../components/Empty";
 import { PageHeader, Panel } from "../components/Panel";
@@ -24,6 +27,12 @@ export default function Overview() {
   const libraries = useLibraries();
   const runs = useRuns(200);
   const doctor = useDoctor();
+  const jobs = useJobs();
+  const startAll = useStartJobs();
+  const cancel = useCancelJob();
+  const confirm = useConfirm();
+  const toast = useToast();
+  const activeJobs = (jobs.data ?? []).filter(isActive);
 
   const libs = libraries.data ?? [];
   const configured = libs.filter((l) => l.configured);
@@ -38,6 +47,26 @@ export default function Overview() {
 
   const serverName = health.data?.plex.server_name;
 
+  const onRunAll = async () => {
+    const names = enabled.map((l) => l.name);
+    const ok = await confirm({
+      title: "Run every enabled library?",
+      body: (
+        <>
+          Queues one job each, in order: <strong>{names.join(", ")}</strong>. Items already cached under the current settings are skipped.
+        </>
+      ),
+      confirmLabel: "Run all",
+    });
+    if (!ok) return;
+    try {
+      const created = await startAll.mutateAsync({});
+      toast("ok", `${created.length} job${created.length === 1 ? "" : "s"} queued`);
+    } catch (e) {
+      toast("fail", "Could not start", (e as Error).message);
+    }
+  };
+
   return (
     <div className="page">
       <PageHeader
@@ -48,7 +77,52 @@ export default function Overview() {
             ? `Plex ${health.data.plex.version ?? ""} · ${enabled.length} of ${configured.length} libraries enabled`
             : health.data?.plex.error ?? "Waiting for Plex…"
         }
+        actions={
+          <button
+            type="button"
+            className="button"
+            onClick={onRunAll}
+            disabled={startAll.isPending || enabled.length === 0 || activeJobs.length > 0}
+            title={activeJobs.length ? "Jobs are already queued" : enabled.length ? "Queue a job for every enabled library" : "No enabled libraries"}
+          >
+            <Play size={14} aria-hidden="true" /> Run all
+          </button>
+        }
       />
+
+      {activeJobs.length > 0 && (
+        <Panel className="reveal" style={{ "--i": 1 } as React.CSSProperties} eyebrow="Jobs" title={`${activeJobs.length} in the queue`}>
+          <div className="jobs">
+            {activeJobs.map((job) => (
+              <div key={job.job_id} className="job">
+                <div className="job__who">
+                  <StatusDot tone={job.status === "running" ? "running" : "muted"} label={job.status} />
+                  <span className="job__lib">{job.library}</span>
+                  {job.dry_run && <span className="chip chip--dry">dry</span>}
+                  {job.source === "schedule" && <span className="chip">scheduled</span>}
+                </div>
+                <button
+                  type="button"
+                  className="button button--ghost button--sm"
+                  onClick={async () => {
+                    try {
+                      await cancel.mutateAsync(job.job_id);
+                      toast("warn", "Cancelling", job.library);
+                    } catch (e) {
+                      toast("fail", "Could not cancel", (e as Error).message);
+                    }
+                  }}
+                >
+                  <Square size={12} aria-hidden="true" /> Cancel
+                </button>
+                <div className="job__live">
+                  <LiveProgress compact progress={job.progress} status={job.status} />
+                </div>
+              </div>
+            ))}
+          </div>
+        </Panel>
+      )}
 
       <div className="stat-grid">
         <Stat index={1} label="Tagged, last run" value={runs.isPending ? null : taggedLastRun} tone="amber" sub="across enabled libraries" />
@@ -63,8 +137,8 @@ export default function Overview() {
         ) : runs.isError ? (
           <ErrorBlock error={runs.error} onRetry={() => runs.refetch()} />
         ) : allRuns.length === 0 ? (
-          <Empty icon={<Activity size={28} strokeWidth={1.5} />} title="No runs recorded yet">
-            Run <code>plex-auto-genres run</code> once and the tape starts here.
+          <Empty icon={<Activity size={28} strokeWidth={1.5} />} title="No runs recorded yet" action={{ to: "/libraries", label: "Start one" }}>
+            Press <strong>Run all</strong>, or start a single library, and the tape begins here.
           </Empty>
         ) : (
           <RunTape runs={allRuns} />

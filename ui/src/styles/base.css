@@ -162,7 +162,7 @@ kbd {
 
 /* One orchestrated page-load reveal; `--i` sets each element's slot. */
 .reveal {
-  animation: reveal var(--dur-slow) var(--ease-out) both;
+  animation: reveal var(--dur-slow) var(--ease-out) backwards;
   animation-delay: calc(var(--i, 0) * var(--stagger));
 }
 
