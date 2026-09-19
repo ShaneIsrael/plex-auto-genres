@@ -196,3 +196,14 @@ def test_taxonomy_check_reports_each_stale_name_once():
     live = ["Action", "Racing", "Suspense"]
     stale = check_names(["cars", "Cars", "action", "thriller"], live)
     assert stale == [("cars", "Racing"), ("thriller", "Suspense")]
+
+
+def test_blank_library_names_are_rejected():
+    for bad in ("", "   "):
+        with pytest.raises(Exception, match="blank|at least 1"):
+            AppConfig.model_validate({"version": 2, "libraries": [{"library": bad, "type": "anime"}]})
+
+
+def test_library_names_are_stripped():
+    config = AppConfig.model_validate({"version": 2, "libraries": [{"library": "  Animes ", "type": "anime"}]})
+    assert config.libraries[0].library == "Animes"

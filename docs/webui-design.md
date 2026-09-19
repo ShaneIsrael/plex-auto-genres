@@ -281,9 +281,48 @@ Decisions taken, and one bug found on the way:
 - **`pytest-timeout`** is now a dev dependency with a 60 s default: the crash above
   first presented as a run that never returned.
 
-### Phase 3 — next
+### Phase 3 — done
 
-Config editing: `PUT /api/v1/config` validating through `AppConfig` before an atomic
-replace, preserving `//` comment keys (read the raw document alongside the parsed one),
-keeping a `.bak`, reloading in place; the form built from `/api/v1/config/schema` with
-RJSF and a `uiSchema` for ordering. Then bindings CRUD with a provider candidate search.
+Shipped: `PUT /api/v1/config` and `POST /api/v1/config/validate`, `etag` on `GET`, and
+the editor on the Config page.
+
+Decisions taken, one of them a deliberate departure from this document:
+
+- **No RJSF.** The plan was to generate the form from the JSON Schema. For this schema
+  that produces a generic "add a key" widget for `defaults` and `replace`, and a wall of
+  checkboxes for a library — correct, and the opposite of intuitive. The editor is
+  hand-built instead: segmented controls for the choices that are really choices (type,
+  provider order, genres vs collections), switches for the booleans, chips for the tag
+  lists, from→to rows for `replace`. What it *does* take from the schema is every help
+  text and enum, via `/api/v1/config/schema`, so the copy cannot drift from the models.
+  Validation stays server-side and is the only source of truth; the form never
+  re-implements a rule.
+- **Live validation, debounced 350 ms**, through the same function `PUT` uses.
+  Out-of-order responses are discarded by sequence number. Errors carry pydantic's
+  `loc` in the file's own key names, so they land on the right field; model-level ones
+  (`clearGenres requires useGenres`) become a banner on the card, root-level ones (a
+  duplicate library) appear in the save bar.
+- **Comments survive.** `merge_preserving_comments` carries `//` keys over at their
+  original position; library entries are matched by name, so reordering or deleting one
+  does not shuffle the others' notes. Removed keys stay removed.
+- **Atomic write with a `.bak`**, temp file + `os.replace` in the same directory. A v1
+  file becomes v2 on its first save, with the v1 original in the backup.
+- **ETag / If-Match.** `GET /config` returns a content hash; the UI sends it back on
+  `PUT`; a mismatch is a 412 with the current hash, and the UI offers to reload. Without
+  the header the write proceeds (scripts and `curl`).
+- **Secrets stay in the environment**, read-only in the UI. Putting them in
+  `config.json` would move them into a mounted file that this project tells people
+  never to commit; putting them in the database would put a Plex token next to run
+  history. Either is a real decision for the owner, not a default to slip in — so it is
+  parked, explicitly.
+- **Unsaved edits are guarded** both ways: `beforeunload` for reloads and closed tabs,
+  a confirmation on in-app navigation. A refetch never clobbers a dirty draft; a clean
+  draft follows the file when it changes on disk.
+- Running jobs keep the config they started with; queued ones pick up the new one.
+
+### Phase 4 — next
+
+Library browser with pagination (`fetchItems` already takes `container_start` /
+`container_size`), joined against `media_state` and `bindings` so each row shows how it
+matched; provider *candidate* search (the providers already fetch the alternatives that
+`pick_best` throws away); bindings create/delete from that browser. Then auth.

@@ -7,10 +7,10 @@ import json
 import time
 
 from fastapi import APIRouter, HTTPException, Query, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
 from .. import __version__
-from ..config import config_json_schema
+from ..config import config_json_schema, validate_document, write_config
 from ..doctor import run_doctor
 from ..errors import ConfigError, PlexConnectionError
 from ..jobs import Job, JobConflict, JobError, JobOptions
@@ -104,6 +104,7 @@ async def get_config(request: Request) -> schemas.ConfigView:
     config = _config_or_503(state)
     return schemas.ConfigView(
         path=str(state.config_path),
+        etag=state.config_etag(),
         version=config.version,
         defaults=config.defaults,
         libraries=config.libraries,
@@ -127,6 +128,54 @@ async def get_config(request: Request) -> schemas.ConfigView:
 async def get_schema() -> dict:
     """JSON Schema for the config file; the form generator's input."""
     return config_json_schema()
+
+
+@router.post("/config/validate", response_model=schemas.ValidationResult)
+async def validate_config(body: schemas.ConfigDocument) -> schemas.ValidationResult:
+    """Dry validation for live form feedback. Always 200; the verdict is in the body."""
+    _, errors = validate_document(body.model_dump())
+    return schemas.ValidationResult(ok=not errors, errors=errors)  # type: ignore[arg-type]
+
+
+@router.put("/config", response_model=schemas.SaveResult)
+async def put_config(request: Request, body: schemas.ConfigDocument):
+    """Validate, then atomically replace the config file.
+
+    Send the ``etag`` from GET as ``If-Match``: if the file changed on disk in
+    the meantime the write is refused with 412 rather than clobbering it.
+    """
+    state = _state(request)
+    if_match = request.headers.get("if-match")
+    current = state.config_etag()
+    if if_match and current and if_match.strip('"') != current:
+        return JSONResponse(
+            status_code=412,
+            headers={"ETag": f'"{current}"'},
+            content={
+                "title": "Precondition Failed",
+                "status": 412,
+                "detail": "The config file changed on disk since you loaded it. "
+                          "Reload it before saving again.",
+                "etag": current,
+            },
+        )
+
+    document = body.model_dump()
+    _, errors = validate_document(document)
+    if errors:
+        return JSONResponse(
+            status_code=422,
+            content=schemas.SaveResult(
+                ok=False, path=str(state.config_path), errors=errors  # type: ignore[arg-type]
+            ).model_dump(),
+        )
+
+    etag, backup = await asyncio.to_thread(write_config, state.config_path, document)
+    state.invalidate_config()
+    return schemas.SaveResult(
+        ok=True, etag=etag, path=str(state.config_path),
+        backup=str(backup) if backup else None,
+    )
 
 
 @router.get("/doctor")

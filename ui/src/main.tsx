@@ -5,9 +5,11 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import App from "./App";
 import { ConfirmProvider } from "./components/ConfirmDialog";
 import { ToastProvider } from "./components/Toast";
+import { UnsavedProvider } from "./components/UnsavedGuard";
 import "./styles/base.css";
 import "./styles/components.css";
 import "./styles/pages.css";
+import "./styles/forms.css";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -29,7 +31,9 @@ createRoot(document.getElementById("root")!).render(
       <BrowserRouter>
         <ToastProvider>
           <ConfirmProvider>
-            <App />
+            <UnsavedProvider>
+              <App />
+            </UnsavedProvider>
           </ConfirmProvider>
         </ToastProvider>
       </BrowserRouter>

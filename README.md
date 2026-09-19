@@ -82,12 +82,19 @@ plex-auto-genres serve --host 0.0.0.0           # reachable from the LAN
 The API is documented at `/api/docs`. **There is no authentication yet** — keep the port
 on your LAN or behind a reverse proxy that adds it.
 
-Editing the config and bindings from the UI is the next phase; see
-[docs/webui-design.md](docs/webui-design.md).
+The **Config** page edits `config.json` itself: libraries (type, providers, what to
+write, post-actions, per-library overrides) and the per-type defaults, with the server
+validating every keystroke. Saving writes the file atomically, keeps the previous one as
+`config.json.bak`, preserves any `//` comments you wrote by hand, and refuses to overwrite
+a file that changed on disk since you loaded it. Credentials stay in the environment and
+are shown read-only.
+
+Bindings from the UI are the next phase; see [docs/webui-design.md](docs/webui-design.md).
 
 Everything the UI does is plain HTTP — `POST /api/v1/libraries/{name}/run`,
 `GET /api/v1/jobs/{id}/events` (server-sent events), `POST /api/v1/jobs/{id}/cancel`,
-`POST /api/v1/runs/{id}/undo` — so it scripts as easily as the CLI.
+`POST /api/v1/runs/{id}/undo`, `PUT /api/v1/config` with `If-Match` — so it scripts as
+easily as the CLI.
 
 ---
 

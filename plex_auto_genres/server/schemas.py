@@ -55,6 +55,8 @@ class ConfigView(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     path: str
+    #: Content hash of the file; send it back as If-Match when saving.
+    etag: str | None = None
     version: int
     defaults: dict[MediaType, GenreRules]
     libraries: list[LibraryRun]
@@ -186,3 +188,43 @@ class UndoResult(BaseModel):
     run_id: str
     restored: int
     skipped: int
+
+
+class ConfigDocument(BaseModel):
+    """The editable part of the config, in the file's key names.
+
+    Validation happens against the full model on the server; this shape only
+    documents the envelope. Unknown keys (including ``//`` comments) pass
+    through here and are rejected or stripped there.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    version: int = 2
+    defaults: dict[str, Any] = Field(default_factory=dict)
+    libraries: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class ValidationIssue(BaseModel):
+    """One problem with a submitted document."""
+
+    loc: list[str | int]
+    msg: str
+    type: str
+
+
+class ValidationResult(BaseModel):
+    """Outcome of a dry validation."""
+
+    ok: bool
+    errors: list[ValidationIssue] = Field(default_factory=list)
+
+
+class SaveResult(BaseModel):
+    """Outcome of writing the config."""
+
+    ok: bool
+    etag: str | None = None
+    path: str
+    backup: str | None = None
+    errors: list[ValidationIssue] = Field(default_factory=list)

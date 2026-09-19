@@ -556,3 +556,88 @@ def test_scheduled_pass_goes_through_the_job_queue(tmp_path, config_file, monkey
         jobs = c.get("/api/v1/jobs").json()
         assert [j["source"] for j in jobs] == ["schedule"]
         assert jobs[0]["library"] == "Animes"
+
+
+# -- config editing (phase 3) -------------------------------------------------
+
+
+def test_get_config_carries_an_etag_that_tracks_the_file(client, config_file):
+    first = client.get("/api/v1/config").json()["etag"]
+    assert first
+    raw = json.loads(config_file.read_text())
+    raw["libraries"].append({"library": "New", "type": "anime"})
+    time.sleep(0.02)
+    config_file.write_text(json.dumps(raw))
+    assert client.get("/api/v1/config").json()["etag"] != first
+
+
+def test_validate_endpoint_is_a_dry_run(client, config_file):
+    before = config_file.read_text()
+    response = client.post("/api/v1/config/validate", json={
+        "version": 2, "libraries": [{"library": "X", "type": "anime", "clearGenres": True}],
+    })
+    assert response.status_code == 200
+    body = response.json()
+    assert body["ok"] is False
+    assert body["errors"][0]["loc"] == ["libraries", 0]
+    assert "clearGenres requires useGenres" in body["errors"][0]["msg"]
+    assert config_file.read_text() == before
+
+
+def test_put_config_writes_the_file_and_the_server_reloads_it(client, config_file):
+    view = client.get("/api/v1/config").json()
+    doc = {"version": 2, "defaults": view["defaults"], "libraries": view["libraries"]}
+    doc["libraries"][0]["clearGenres"] = False
+    doc["libraries"].append({"library": "Séries", "type": "standard-tv", "useGenres": True})
+
+    response = client.put("/api/v1/config", json=doc, headers={"If-Match": view["etag"]})
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["ok"] and body["backup"].endswith("config.json.bak")
+
+    on_disk = json.loads(config_file.read_text())
+    assert [l["library"] for l in on_disk["libraries"]] == ["Animes", "Films", "Séries"]
+    assert on_disk["libraries"][0]["clearGenres"] is False
+    assert "plex" not in on_disk
+
+    fresh = client.get("/api/v1/config").json()
+    assert fresh["etag"] == body["etag"]
+    assert fresh["libraries"][2]["library"] == "Séries"
+    libs = {l["name"]: l for l in client.get("/api/v1/libraries").json()}
+    assert "Séries" in libs   # every other endpoint sees the new config at once
+
+
+def test_put_config_refuses_a_stale_etag(client, config_file):
+    view = client.get("/api/v1/config").json()
+    doc = {"version": 2, "defaults": view["defaults"], "libraries": view["libraries"]}
+    response = client.put("/api/v1/config", json=doc, headers={"If-Match": "0000000000000000"})
+    assert response.status_code == 412
+    assert response.json()["etag"] == view["etag"]
+    assert response.headers["etag"] == f'"{view["etag"]}"'
+
+
+def test_put_config_rejects_an_invalid_document_without_touching_the_file(client, config_file):
+    before = config_file.read_text()
+    response = client.put("/api/v1/config", json={
+        "version": 2, "libraries": [{"library": "X", "type": "anime"}, {"library": "x", "type": "anime"}],
+    })
+    assert response.status_code == 422
+    body = response.json()
+    assert body["ok"] is False and "more than once" in body["errors"][0]["msg"]
+    assert config_file.read_text() == before
+
+
+def test_put_config_preserves_comments_on_disk(client, config_file):
+    raw = json.loads(config_file.read_text())
+    raw["//"] = "hand-written note"
+    raw["libraries"][0]["//why"] = "because"
+    config_file.write_text(json.dumps(raw))
+    view = client.get("/api/v1/config").json()
+
+    doc = {"version": 2, "defaults": view["defaults"], "libraries": list(reversed(view["libraries"]))}
+    assert client.put("/api/v1/config", json=doc, headers={"If-Match": view["etag"]}).status_code == 200
+
+    on_disk = json.loads(config_file.read_text())
+    assert on_disk["//"] == "hand-written note"
+    animes = next(l for l in on_disk["libraries"] if l["library"] == "Animes")
+    assert animes["//why"] == "because"        # followed the library, not the index

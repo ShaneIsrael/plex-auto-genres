@@ -64,6 +64,8 @@ export interface Secrets {
 
 export interface ConfigView {
   path: string;
+  /** Content hash of the file on disk; sent back as If-Match on save. */
+  etag: string | null;
   version: number;
   defaults: Partial<Record<MediaType, GenreRules>>;
   libraries: LibraryRun[];
@@ -205,3 +207,29 @@ export type JobEvent =
   | { event: "item"; data: { job_id: string; run_id: string; done: number; pending: number; written: number; unchanged: number; failed: number; title: string; status: string; error: string | null } }
   | { event: "report"; data: { job_id: string; run_id: string; report: RunReport } }
   | { event: "end"; data: { job_id: string; status: JobStatus; error: string | null; run_ids: string[]; reports: RunReport[] } };
+
+/** The editable part of the config, in the file's own key names. */
+export interface ConfigDocument {
+  version: number;
+  defaults: Partial<Record<MediaType, GenreRules>>;
+  libraries: LibraryRun[];
+}
+
+export interface ValidationIssue {
+  loc: (string | number)[];
+  msg: string;
+  type: string;
+}
+
+export interface ValidationResult {
+  ok: boolean;
+  errors: ValidationIssue[];
+}
+
+export interface SaveResult {
+  ok: boolean;
+  etag: string | null;
+  path: string;
+  backup: string | null;
+  errors: ValidationIssue[];
+}

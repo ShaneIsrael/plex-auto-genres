@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import type {
   BindingView,
+  ConfigDocument,
   ConfigView,
   DoctorReport,
   Health,
@@ -13,21 +14,26 @@ import type {
   Problem,
   RunOptions,
   RunView,
+  SaveResult,
   StartJobs,
   UndoResult,
+  ValidationResult,
 } from "./types";
 
 export class ApiError extends Error {
   readonly status: number;
   readonly title: string;
   readonly detail: string | null;
+  /** The full response body, for endpoints that put structure in an error (412, 422). */
+  readonly body: unknown;
 
-  constructor(problem: Problem) {
+  constructor(problem: Problem, body: unknown = problem) {
     super(problem.detail ?? problem.title);
     this.name = "ApiError";
     this.status = problem.status;
     this.title = problem.title;
     this.detail = problem.detail ?? null;
+    this.body = body;
   }
 }
 
@@ -67,8 +73,32 @@ async function post<T>(path: string, body?: unknown): Promise<T> {
   return (await response.json()) as T;
 }
 
+async function send<T>(method: "PUT" | "POST", path: string, body: unknown, headers: Record<string, string> = {}): Promise<T> {
+  const response = await fetch(new URL(path, window.location.origin), {
+    method,
+    headers: { Accept: "application/json", "Content-Type": "application/json", ...headers },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    let problem: Problem = { title: response.statusText || "Request failed", status: response.status };
+    let body: unknown = problem;
+    try {
+      const parsed = (await response.json()) as Record<string, unknown>;
+      problem = { ...problem, ...(parsed as Partial<Problem>) };
+      body = { ...problem, ...parsed };
+    } catch {
+      /* not JSON */
+    }
+    throw new ApiError(problem, body);
+  }
+  return (await response.json()) as T;
+}
+
 export const api = {
   health: () => get<Health>("/api/v1/health"),
+  validateConfig: (doc: ConfigDocument) => send<ValidationResult>("POST", "/api/v1/config/validate", doc),
+  saveConfig: (doc: ConfigDocument, etag: string | null) =>
+    send<SaveResult>("PUT", "/api/v1/config", doc, etag ? { "If-Match": etag } : {}),
   jobs: () => get<JobView[]>("/api/v1/jobs"),
   job: (id: string) => get<JobView>(`/api/v1/jobs/${encodeURIComponent(id)}`),
   startJob: (library: string, options: RunOptions = {}) =>
@@ -286,4 +316,21 @@ export function useJobEvents(jobId: string | null | undefined): LiveJob {
   }, [jobId]);
 
   return state;
+}
+
+// -- config editing ----------------------------------------------------------
+
+export const useSchema = () =>
+  useQuery({ queryKey: ["schema"], queryFn: api.schema, staleTime: Infinity });
+
+export function useSaveConfig() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ doc, etag }: { doc: ConfigDocument; etag: string | null }) => api.saveConfig(doc, etag),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["config"] });
+      void qc.invalidateQueries({ queryKey: ["doctor"] });
+      void qc.invalidateQueries({ queryKey: ["libraries"] });
+    },
+  });
 }

@@ -1,160 +1,238 @@
-import { useConfig, useDoctor } from "../api/client";
-import type { GenreRules, MediaType } from "../api/types";
+import { Plus } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { ApiError, api, useConfig, useLibraries, useSaveConfig, useSchema } from "../api/client";
+import type { ConfigDocument, GenreRules, LibraryRun, MediaType, ValidationIssue } from "../api/types";
+import { useConfirm } from "../components/ConfirmDialog";
 import { ErrorBlock } from "../components/Empty";
 import { PageHeader, Panel } from "../components/Panel";
 import { PageSkeleton } from "../components/Skeleton";
-import { StatusDot, toneForLevel } from "../components/StatusDot";
+import { useToast } from "../components/Toast";
+import { useUnsaved } from "../components/UnsavedGuard";
+import { TYPES, emptyRules, helpFrom, issuesUnder, newLibrary, same, toDocument, type JsonSchemaLike } from "./config/editor";
+import { LibraryEditor } from "./config/LibraryEditor";
+import { Doctor, Environment } from "./config/Reference";
+import { RulesEditor } from "./config/RulesEditor";
+import { SaveBar, type ValidationStatus } from "./config/SaveBar";
 
-const TYPES: MediaType[] = ["anime", "standard-tv", "standard-movie"];
+/** Server-side validation, debounced, ignoring out-of-order responses. */
+function useLiveValidation(doc: ConfigDocument | null, active: boolean) {
+  const [state, setState] = useState<{ status: ValidationStatus; errors: ValidationIssue[] }>({ status: "idle", errors: [] });
+  const seq = useRef(0);
+  useEffect(() => {
+    if (!doc || !active) {
+      setState({ status: "idle", errors: [] });
+      return;
+    }
+    const mine = ++seq.current;
+    setState((s) => ({ ...s, status: "validating" }));
+    const handle = window.setTimeout(async () => {
+      try {
+        const result = await api.validateConfig(doc);
+        if (mine === seq.current) setState({ status: result.ok ? "valid" : "invalid", errors: result.errors });
+      } catch {
+        if (mine === seq.current) setState({ status: "idle", errors: [] });
+      }
+    }, 350);
+    return () => window.clearTimeout(handle);
+  }, [doc, active]);
+  const override = useCallback((errors: ValidationIssue[]) => setState({ status: errors.length ? "invalid" : "valid", errors }), []);
+  return { ...state, override };
+}
 
 export default function Config() {
   const config = useConfig();
-  const doctor = useDoctor();
+  const schema = useSchema();
+  const libraries = useLibraries();
+  const save = useSaveConfig();
+  const confirm = useConfirm();
+  const toast = useToast();
+  const { setDirty } = useUnsaved();
 
-  if (config.isPending) return <PageSkeleton />;
+  const [draft, setDraft] = useState<ConfigDocument | null>(null);
+  const [baseline, setBaseline] = useState<ConfigDocument | null>(null);
+  const [etag, setEtag] = useState<string | null>(null);
+  const [focusNew, setFocusNew] = useState<number | null>(null);
+
+  const dirty = draft !== null && baseline !== null && !same(draft, baseline);
+  const validation = useLiveValidation(draft, dirty);
+  const help = helpFrom(schema.data as JsonSchemaLike | undefined);
+
+  // Adopt the server's document when we have none, or when it changed on disk
+  // and we hold no edits. A dirty draft is never clobbered by a refetch.
+  useEffect(() => {
+    if (!config.data) return;
+    if (baseline === null || (!dirty && config.data.etag !== etag)) {
+      const doc = toDocument(config.data);
+      setDraft(doc);
+      setBaseline(doc);
+      setEtag(config.data.etag);
+    }
+  }, [config.data, baseline, dirty, etag]);
+
+  useEffect(() => {
+    setDirty(dirty);
+    return () => setDirty(false);
+  }, [dirty, setDirty]);
+
+  if (config.isPending || draft === null) return <PageSkeleton />;
+  if (config.isError && baseline === null) {
+    return (
+      <div className="page">
+        <PageHeader eyebrow="05 · Config" title="Configuration" />
+        <ErrorBlock error={config.error} onRetry={() => config.refetch()} />
+      </div>
+    );
+  }
+
+  const errors = validation.errors;
+  const unconfiguredSections = (libraries.data ?? []).filter((l) => !l.configured).map((l) => l.name);
+
+  const setLibraries = (next: LibraryRun[]) => setDraft({ ...draft, libraries: next });
+  const setDefault = (type: MediaType, rules: GenreRules | null) => {
+    const defaults = { ...draft.defaults };
+    if (rules === null) delete defaults[type];
+    else defaults[type] = rules;
+    setDraft({ ...draft, defaults });
+  };
+
+  const addLibrary = () => {
+    setLibraries([...draft.libraries, newLibrary(unconfiguredSections[0] ?? "")]);
+    setFocusNew(draft.libraries.length);
+  };
+
+  const removeLibrary = async (index: number) => {
+    const lib = draft.libraries[index];
+    const ok = await confirm({
+      title: `Remove ${lib?.library || "this library"} from the config?`,
+      body: "Its cache and run history stay in the database; only the configuration entry goes. Nothing is written until you save.",
+      confirmLabel: "Remove",
+      danger: true,
+    });
+    if (ok) setLibraries(draft.libraries.filter((_, i) => i !== index));
+  };
+
+  const moveLibrary = (index: number, delta: -1 | 1) => {
+    const next = [...draft.libraries];
+    const [item] = next.splice(index, 1);
+    if (item) next.splice(index + delta, 0, item);
+    setLibraries(next);
+  };
+
+  const discard = async () => {
+    const ok = await confirm({ title: "Discard your changes?", body: "The form goes back to what is on disk.", confirmLabel: "Discard", danger: true });
+    if (ok && baseline) setDraft(baseline);
+  };
+
+  const doSave = async () => {
+    try {
+      const result = await save.mutateAsync({ doc: draft, etag });
+      setBaseline(draft);
+      setEtag(result.etag);
+      toast("ok", "Config saved", result.backup ? `Previous file kept as ${result.backup.split("/").pop()}.` : undefined);
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 422) {
+        const body = e.body as { errors?: ValidationIssue[] };
+        validation.override(body.errors ?? []);
+        toast("fail", "Not saved", "Fix the problems shown in the form.");
+      } else if (e instanceof ApiError && e.status === 412) {
+        const reload = await confirm({
+          title: "The file changed on disk",
+          body: "Someone — or something — edited config.json since you loaded it. Reload it and lose your edits, or keep editing and save again to overwrite.",
+          confirmLabel: "Reload from disk",
+          danger: true,
+        });
+        if (reload) {
+          setBaseline(null);
+          await config.refetch();
+        } else {
+          setEtag((e.body as { etag?: string }).etag ?? null);
+        }
+      } else {
+        toast("fail", "Save failed", (e as Error).message);
+      }
+    }
+  };
 
   return (
-    <div className="page">
+    <div className={`page ${dirty ? "page--editing" : ""}`}>
       <PageHeader
         eyebrow="05 · Config"
         title="Configuration"
         lede={
-          config.data ? (
-            <>Read from <code>{config.data.path}</code>. Edit the file and the server picks it up; form editing arrives in phase 3.</>
-          ) : (
-            "The config could not be loaded."
-          )
+          // One flex item: the lede is a flex row (for status chips elsewhere),
+          // and loose text nodes would pick up its gap as visible spaces.
+          <span>
+            Edits are checked as you type and written atomically to <code>{config.data?.path ?? "config.json"}</code>; the previous file is kept as <code>.bak</code>. Running jobs keep the config they started with.
+          </span>
         }
       />
 
-      {config.isError && <ErrorBlock error={config.error} onRetry={() => config.refetch()} />}
-
-      {config.data && (
-        <>
-          <div className="two-col">
-            <Panel className="reveal" style={{ "--i": 1 } as React.CSSProperties} eyebrow="Environment" title="Secrets and connection">
-              <dl className="kv-list mono">
-                <div><dt>PLEX_BASE_URL</dt><dd>{config.data.secrets.plex_base_url ?? <span className="faint">unset</span>}</dd></div>
-                <div><dt>PLEX_TOKEN</dt><dd><Presence set={config.data.secrets.plex_token} /></dd></div>
-                <div><dt>PLEX_PASSWORD</dt><dd><Presence set={config.data.secrets.plex_password} legacy /></dd></div>
-                <div><dt>PLEX_SERVER_NAME</dt><dd>{config.data.secrets.plex_server_name ?? <span className="faint">unset</span>}</dd></div>
-                <div><dt>TMDB_API_KEY</dt><dd><Presence set={config.data.secrets.tmdb_api_key} /></dd></div>
-                <div><dt>PLEX_COLLECTION_PREFIX</dt><dd>{config.data.secrets.collection_prefix ? <code>{config.data.secrets.collection_prefix}</code> : <span className="faint">none</span>}</dd></div>
-                <div><dt>TMDB_LANGUAGE</dt><dd>{config.data.providers.tmdb_language}</dd></div>
-                <div><dt>PAG_CONCURRENCY</dt><dd>{config.data.providers.concurrency}</dd></div>
-                <div><dt>PAG_MAX_ATTEMPTS</dt><dd>{config.data.providers.max_attempts}</dd></div>
-              </dl>
-            </Panel>
-
-            <Panel className="reveal" style={{ "--i": 2 } as React.CSSProperties} eyebrow="Doctor" title="Checks">
-              <span id="doctor" />
-              {doctor.isPending ? (
-                <p className="faint">Checking…</p>
-              ) : doctor.isError ? (
-                <ErrorBlock error={doctor.error} onRetry={() => doctor.refetch()} />
-              ) : (
-                <ul className="checks">
-                  {doctor.data.checks.map((c) => (
-                    <li key={c.id} className="checks__item">
-                      <StatusDot tone={toneForLevel(c.level)} label={c.title} />
-                      {c.detail && <p className="checks__detail muted">{c.detail}</p>}
-                      {c.items.length > 0 && (
-                        <ul className="checks__list mono">
-                          {c.items.map((it) => <li key={it}>{it}</li>)}
-                        </ul>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </Panel>
+      <section className="editor reveal" style={{ "--i": 1 } as React.CSSProperties}>
+        <div className="section-head">
+          <div>
+            <h2>Libraries</h2>
+            <p>One entry per Plex library to tag. Order is the order "Run all" and the schedule use.</p>
           </div>
+          <button type="button" className="button button--ghost" onClick={addLibrary}>
+            <Plus size={14} aria-hidden="true" /> Add library
+          </button>
+        </div>
 
-          <Panel className="reveal" style={{ "--i": 3 } as React.CSSProperties} eyebrow="Libraries" title={`${config.data.libraries.length} configured`}>
-            <div className="table-wrap">
-              <table className="table">
-                <thead>
-                  <tr>
-                    <th scope="col">Library</th>
-                    <th scope="col">Type</th>
-                    <th scope="col">Providers</th>
-                    <th scope="col">Writes</th>
-                    <th scope="col">Options</th>
-                    <th scope="col">Overrides</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {config.data.libraries.map((lib) => (
-                    <tr key={lib.library} className={lib.enabled ? "" : "is-off"}>
-                      <td>{lib.library}{!lib.enabled && <span className="chip">disabled</span>}</td>
-                      <td className="mono muted">{lib.type}</td>
-                      <td className="mono tone-teal">{(lib.providers ?? (lib.type === "anime" ? ["jikan"] : ["tmdb"])).join(" → ")}</td>
-                      <td className="mono tone-amber">{lib.useGenres ? "genres" : "collections"}{lib.clearGenres ? " · replace" : ""}{lib.useKeywords ? " · keywords" : ""}</td>
-                      <td className="mono muted">
-                        {[lib.setPosters && "posters", lib.sortCollections && "sort", lib.rateAnime && "ratings", lib.createRatingCollections && "rating-collections"].filter(Boolean).join(", ") || "—"}
-                      </td>
-                      <td className="mono muted">{lib.overrides ? summarize(lib.overrides) : "—"}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </Panel>
+        {draft.libraries.length === 0 && (
+          <Panel><p className="muted">No libraries yet. Add one and point it at a Plex section.</p></Panel>
+        )}
 
-          <div className="three-col">
-            {TYPES.map((type, i) => {
-              const rules = config.data.defaults[type];
-              return (
-                <Panel key={type} className="reveal" style={{ "--i": 4 + i } as React.CSSProperties} eyebrow="Defaults" title={type}>
-                  {rules ? <Rules rules={rules} /> : <p className="faint">No defaults for this type.</p>}
-                </Panel>
-              );
-            })}
+        {draft.libraries.map((lib, i) => (
+          <LibraryEditor
+            key={i}
+            lib={lib}
+            index={i}
+            errors={issuesUnder(errors, ["libraries", i])}
+            help={help}
+            plexSections={unconfiguredSections}
+            onChange={(next) => setLibraries(draft.libraries.map((l, j) => (j === i ? next : l)))}
+            onRemove={() => void removeLibrary(i)}
+            onMove={(delta) => moveLibrary(i, delta)}
+            canMoveUp={i > 0}
+            canMoveDown={i < draft.libraries.length - 1}
+            autoFocusName={focusNew === i}
+          />
+        ))}
+      </section>
+
+      <section className="editor reveal" style={{ "--i": 2 } as React.CSSProperties}>
+        <div className="section-head">
+          <div>
+            <h2>Defaults by type</h2>
+            <p>Rules every library of a type inherits. A library's overrides are layered on top.</p>
           </div>
-        </>
+        </div>
+        <div className="three-col">
+          {TYPES.map((type) => {
+            const rules = draft.defaults[type];
+            return (
+              <Panel key={type} eyebrow="Defaults" title={type} aside={rules ? <button type="button" className="button button--ghost button--sm" onClick={() => setDefault(type, null)}>Remove</button> : undefined}>
+                {rules ? (
+                  <RulesEditor id={`def-${type}`} rules={rules} onChange={(v) => setDefault(type, v)} errors={issuesUnder(errors, ["defaults", type])} loc={["defaults", type]} help={help} />
+                ) : (
+                  <button type="button" className="button button--ghost button--sm" onClick={() => setDefault(type, emptyRules())}>
+                    <Plus size={12} aria-hidden="true" /> Add defaults for {type}
+                  </button>
+                )}
+              </Panel>
+            );
+          })}
+        </div>
+      </section>
+
+      <div className="two-col">
+        {config.data && <Environment config={config.data} index={3} />}
+        <Doctor index={4} />
+      </div>
+
+      {dirty && (
+        <SaveBar doc={draft} status={validation.status} errors={errors} saving={save.isPending} onSave={() => void doSave()} onDiscard={() => void discard()} />
       )}
-    </div>
-  );
-}
-
-function Presence({ set, legacy = false }: { set: boolean; legacy?: boolean }) {
-  if (set) return <StatusDot tone="ok" label="set" />;
-  return <StatusDot tone={legacy ? "muted" : "warn"} label={legacy ? "unset (legacy)" : "unset"} />;
-}
-
-function summarize(r: GenreRules): string {
-  const bits: string[] = [];
-  if (r.ignore.length) bits.push(`ignore ${r.ignore.length}`);
-  if (Object.keys(r.replace).length) bits.push(`replace ${Object.keys(r.replace).length}`);
-  if (r.maxGenres != null) bits.push(`max ${r.maxGenres}`);
-  if (r.sortedPrefix) bits.push(`prefix "${r.sortedPrefix}"`);
-  return bits.join(", ") || "empty";
-}
-
-function Rules({ rules }: { rules: GenreRules }) {
-  const replace = Object.entries(rules.replace);
-  return (
-    <div className="rules">
-      <div>
-        <div className="label">Ignore</div>
-        {rules.ignore.length ? <p className="chips">{rules.ignore.map((g) => <span key={g} className="chip">{g}</span>)}</p> : <p className="faint">—</p>}
-      </div>
-      <div>
-        <div className="label">Replace</div>
-        {replace.length ? (
-          <dl className="kv-list mono kv-list--tight">
-            {replace.map(([from, to]) => <div key={from}><dt>{from}</dt><dd>→ {to}</dd></div>)}
-          </dl>
-        ) : <p className="faint">—</p>}
-      </div>
-      <div>
-        <div className="label">Sort prefix · max genres</div>
-        <p className="mono">{rules.sortedPrefix ? <code>{rules.sortedPrefix}</code> : <span className="faint">none</span>} · {rules.maxGenres ?? <span className="faint">unlimited</span>}</p>
-      </div>
-      <div>
-        <div className="label">Sorted collections</div>
-        {rules.sortedCollections.length ? <p className="chips">{rules.sortedCollections.map((g) => <span key={g} className="chip chip--quiet">{g}</span>)}</p> : <p className="faint">—</p>}
-      </div>
     </div>
   );
 }

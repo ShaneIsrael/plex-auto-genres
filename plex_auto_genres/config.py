@@ -17,9 +17,12 @@ working untouched.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import os
+import shutil
+import tempfile
 from pathlib import Path
 from typing import Any, Literal
 
@@ -131,7 +134,7 @@ class LibraryRun(BaseModel):
 
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
-    library: str = Field(description="Exact Plex library name.")
+    library: str = Field(min_length=1, description="Exact Plex library name.")
     type: MediaType = Field(description="Which metadata taxonomy applies.")
     enabled: bool = Field(default=True, description="Skip this entry when false.")
 
@@ -172,6 +175,14 @@ class LibraryRun(BaseModel):
         default=None,
         description="Per-library genre rules layered over the type defaults.",
     )
+
+    @field_validator("library")
+    @classmethod
+    def _strip_library(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("library name must not be blank")
+        return value
 
     @model_validator(mode="after")
     def _check_coherent(self) -> "LibraryRun":
@@ -426,3 +437,146 @@ def config_json_schema() -> dict[str, Any]:
     from the same source of truth the CLI validates against.
     """
     return AppConfig.model_json_schema(by_alias=True)
+
+
+# --------------------------------------------------------------------------
+# Editing: validate, merge, write
+# --------------------------------------------------------------------------
+
+#: Keys the editable document may carry. Everything else comes from the
+#: environment and is never written to the file.
+DOCUMENT_KEYS = ("version", "defaults", "libraries")
+
+
+def editable_document(config: AppConfig) -> dict[str, Any]:
+    """The part of a config a form edits, in the file's own key names."""
+    return {
+        "version": config.version,
+        "defaults": {
+            media_type.value: rules.model_dump(by_alias=True)
+            for media_type, rules in config.defaults.items()
+        },
+        "libraries": [run.model_dump(by_alias=True, mode="json") for run in config.libraries],
+    }
+
+
+def validate_document(
+    document: dict[str, Any],
+    *,
+    plex: PlexSettings | None = None,
+    providers: ProviderSettings | None = None,
+) -> tuple[AppConfig | None, list[dict[str, Any]]]:
+    """Validate an editable document against the full model.
+
+    Returns ``(config, [])`` when it is valid, or ``(None, errors)`` where each
+    error is ``{"loc": [...], "msg": ..., "type": ...}`` with ``loc`` in the
+    file's own key names, so a form can attach it to the right field.
+    """
+    body = {k: v for k, v in strip_comments(document).items() if k in DOCUMENT_KEYS}
+    payload = {
+        **body,
+        "plex": (plex or _plex_from_env()).model_dump(),
+        "providers": (providers or _providers_from_env()).model_dump(),
+    }
+    try:
+        return AppConfig.model_validate(payload), []
+    except ValidationError as exc:
+        errors = []
+        for err in exc.errors():
+            msg = err["msg"]
+            # pydantic prefixes model-validator messages; the prefix is noise in a form.
+            if msg.startswith("Value error, "):
+                msg = msg[len("Value error, "):]
+            errors.append({"loc": list(err["loc"]), "msg": msg, "type": err["type"]})
+        return None, errors
+
+
+def merge_preserving_comments(old: Any, new: Any) -> Any:
+    """Return ``new`` with the ``"//"`` comment keys of ``old`` carried over.
+
+    A form edits the parsed document, which has had its comments stripped; a
+    straight write-back would silently delete every annotation the user put in
+    the file. Comments are kept at their original position, keys that ``new``
+    still has keep ``old``'s ordering, and library entries are matched by name
+    rather than by index so reordering or deleting one does not shuffle the
+    comments of the others.
+    """
+    if isinstance(old, dict) and isinstance(new, dict):
+        merged: dict[str, Any] = {}
+        for key, value in old.items():
+            if key.startswith("//"):
+                merged[key] = value
+            elif key in new:
+                merged[key] = merge_preserving_comments(value, new[key])
+        for key, value in new.items():
+            if key not in merged:
+                merged[key] = value
+        return merged
+
+    if isinstance(old, list) and isinstance(new, list):
+        def name_of(entry: Any) -> str | None:
+            if isinstance(entry, dict) and isinstance(entry.get("library"), str):
+                return entry["library"].casefold()
+            return None
+
+        by_name = {name_of(e): e for e in old if name_of(e)}
+        out = []
+        for index, item in enumerate(new):
+            key = name_of(item)
+            twin = by_name.get(key) if key else (old[index] if index < len(old) else None)
+            out.append(merge_preserving_comments(twin, item) if twin is not None else item)
+        return out
+
+    return new
+
+
+def etag_of(text: str) -> str:
+    """A short content hash, used to detect edits that crossed on disk."""
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
+
+
+def read_config_etag(path: str | Path) -> str | None:
+    path = Path(path)
+    if not path.is_file():
+        return None
+    return etag_of(path.read_text(encoding="utf-8"))
+
+
+def write_config(path: str | Path, document: dict[str, Any]) -> tuple[str, Path | None]:
+    """Replace the config file atomically. Returns ``(etag, backup_path)``.
+
+    The previous file is copied to ``<name>.bak`` first, the new text goes to a
+    temporary file in the same directory and is then ``os.replace``d over the
+    original, so a crash mid-write cannot leave a truncated config. A v1 file
+    comes out of this in the v2 layout (its keys are not in the new document),
+    with the v1 original preserved in the backup.
+    """
+    path = Path(path)
+    body = {k: v for k, v in strip_comments(document).items() if k in DOCUMENT_KEYS}
+
+    old_raw: Any = {}
+    if path.is_file():
+        with contextlib.suppress(json.JSONDecodeError, OSError):
+            old_raw = json.loads(path.read_text(encoding="utf-8"))
+    merged = merge_preserving_comments(old_raw, body) if isinstance(old_raw, dict) else body
+    text = json.dumps(merged, indent=4, ensure_ascii=False) + "\n"
+
+    backup: Path | None = None
+    if path.is_file():
+        backup = path.with_name(path.name + ".bak")
+        shutil.copyfile(path, backup)
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(dir=path.parent, prefix=f".{path.stem}-", suffix=".tmp")
+    tmp = Path(tmp_name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(tmp, path)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            tmp.unlink()
+        raise
+    return etag_of(text), backup

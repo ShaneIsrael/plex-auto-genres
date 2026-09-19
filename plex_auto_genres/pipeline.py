@@ -173,7 +173,9 @@ class Pipeline:
         self.store.finish_run(report)
         return report
 
-    def _pending(self, items: list[MediaItem], run: LibraryRun, fingerprint: str) -> list[MediaItem]:
+    def _pending(
+        self, items: list[MediaItem], run: LibraryRun, fingerprint: str
+    ) -> list[MediaItem]:
         """The items the cache says still need work under these settings."""
         return [
             item for item in items

@@ -214,3 +214,13 @@ kbd {
   scrollbar-width: thin;
   scrollbar-color: var(--ink-4) transparent;
 }
+
+.spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

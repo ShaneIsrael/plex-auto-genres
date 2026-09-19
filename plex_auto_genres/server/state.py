@@ -8,7 +8,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from ..config import AppConfig, load_config
+from ..config import AppConfig, etag_of, load_config
 from ..errors import ConfigError, PlexConnectionError
 from ..jobs import JobManager
 from ..plexsvc import client as plex_client
@@ -49,6 +49,7 @@ class AppState:
 
         self._config: AppConfig | None = None
         self._config_mtime: float | None = None
+        self._config_etag: str | None = None
         self._plex = None
         self._link = PlexLink(reachable=False)
         self._plex_ttl = plex_ttl_s
@@ -68,8 +69,23 @@ class AppState:
         if self._config is None or mtime != self._config_mtime:
             self._config = load_config(self.config_path)
             self._config_mtime = mtime
+            self._config_etag = etag_of(self.config_path.read_text(encoding="utf-8"))
             log.info("Config loaded from %s", self.config_path)
         return self._config
+
+    def config_etag(self) -> str | None:
+        """Hash of the file as last loaded; ``None`` if it cannot be read."""
+        try:
+            self.config()
+        except ConfigError:
+            return None
+        return self._config_etag
+
+    def invalidate_config(self) -> None:
+        """Force the next :meth:`config` call to re-read the file."""
+        self._config = None
+        self._config_mtime = None
+        self._config_etag = None
 
     # -- plex -------------------------------------------------------------
 
