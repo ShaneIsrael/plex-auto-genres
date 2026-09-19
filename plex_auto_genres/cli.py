@@ -14,15 +14,16 @@ from dotenv import load_dotenv
 
 from . import __version__
 from .config import AppConfig, CONFIG_VERSION, config_json_schema, load_config, migrate_v1
+from .doctor import DoctorReport, run_doctor
 from .errors import ConfigError, PagError, PlexConnectionError
-from .models import ItemOutcome, MediaType, RunReport
-from .pipeline import Pipeline
+from .models import MediaType, RunReport
 from .plexsvc import client as plex_client
 from .plexsvc.writer import undo_run
 from .providers import LookupRequest, build_providers
 from .reporting import ProgressBar, Style, print_report
+from .runner import ACTIONS, run_libraries
+from .scheduler import run_forever, validate_cron
 from .store import Store
-from .taxonomy import check_names, fetch_live_genres
 
 log = logging.getLogger("plex_auto_genres")
 
@@ -68,8 +69,8 @@ def build_parser() -> argparse.ArgumentParser:
                      help="Ignore the cache and reprocess everything.")
     run.add_argument("-y", "--yes", action="store_true", help="Do not prompt for confirmation.")
     run.add_argument("--no-progress", action="store_true", help="Disable the progress bar.")
-    run.add_argument("--only", choices=["tags", "posters", "sort", "ratings", "rating-collections"],
-                     action="append", help="Run only these actions. Repeatable.")
+    run.add_argument("--only", choices=list(ACTIONS), action="append",
+                     help="Run only these actions. Repeatable.")
     run.add_argument("--posters-dir", default="posters", help="Root of the poster directories.")
 
     query = sub.add_parser("query", help="Look up a title without changing anything.")
@@ -117,6 +118,15 @@ def build_parser() -> argparse.ArgumentParser:
     schedule.add_argument("--cron", default="0 1 * * *", help="Five-field cron expression.")
     schedule.add_argument("--now", action="store_true", help="Also run once on start.")
     schedule.add_argument("--posters-dir", default="posters")
+
+    serve = sub.add_parser("serve", help="Start the web UI and API (and optionally the scheduler).")
+    serve.add_argument("--host", default="127.0.0.1",
+                       help="Bind address. Use 0.0.0.0 inside a container.")
+    serve.add_argument("--port", type=int, default=8095)
+    serve.add_argument("--cron", help="Also run the scheduler in this process.")
+    serve.add_argument("--now", action="store_true", help="With --cron: run once on start.")
+    serve.add_argument("--posters-dir", default="posters")
+    serve.add_argument("--static-dir", help="Built UI directory (defaults to the package's).")
 
     return parser
 
@@ -187,7 +197,6 @@ async def cmd_run(args, config: AppConfig, store: Store, style: Style) -> int:
         print(style.yellow("No enabled libraries in the config; nothing to do."))
         return 0
 
-    only = set(args.only or [])
     if not args.yes and not args.dry and sys.stdin.isatty():
         names = ", ".join(style.cyan(r.library) for r in runs)
         target = "genre tags" if any(r.use_genres for r in runs) else "collections"
@@ -196,61 +205,29 @@ async def cmd_run(args, config: AppConfig, store: Store, style: Style) -> int:
             return 130
 
     server = await asyncio.to_thread(plex_client.connect, config.plex)
-    pipeline = Pipeline(config, store, server, dry_run=args.dry, force=args.force)
+    bars: list[ProgressBar] = []
 
-    reports: list[RunReport] = []
-    exit_code = 0
+    def on_library_start(_run, total: int):
+        progress = ProgressBar(total, enabled=not args.no_progress)
+        bars.append(progress)
+        return lambda outcome, _p=progress: _p.advance(suffix=outcome.item.title)
 
-    for run in runs:
-        _import_legacy_once(store, config, run)
+    def on_report(report: RunReport) -> None:
+        while bars:
+            bars.pop().close()
+        if not args.json:
+            print_report(report, style)
 
-        if not only or "tags" in only:
-            total = await asyncio.to_thread(_library_size, server, run.library)
-            with ProgressBar(total, enabled=not args.no_progress) as progress:
-                def tick(outcome: ItemOutcome, _p=progress) -> None:
-                    _p.advance(suffix=outcome.item.title)
-
-                report = await pipeline.tag_library(run, progress=tick)
-            reports.append(report)
-            if report.failed:
-                exit_code = 1
-
-        if (not only and run.rate_media) or "ratings" in only:
-            reports.append(await pipeline.rate_library(run))
-        if (not only and run.create_rating_collections) or "rating-collections" in only:
-            reports.append(await pipeline.rating_collections(run))
-        if (not only and run.set_posters) or "posters" in only:
-            posters_dir = str(Path(args.posters_dir) / run.type.value)
-            reports.append(await pipeline.set_posters(run, posters_dir))
-        if (not only and run.sort_collections) or "sort" in only:
-            reports.append(await pipeline.sort(run))
+    reports = await run_libraries(
+        config, store, server, runs,
+        dry_run=args.dry, force=args.force, only=set(args.only or ()),
+        posters_dir=args.posters_dir,
+        on_library_start=on_library_start, on_report=on_report,
+    )
 
     if args.json:
         print(json.dumps([r.as_dict() for r in reports], indent=2, ensure_ascii=False))
-    else:
-        for report in reports:
-            print_report(report, style)
-    return exit_code
-
-
-def _library_size(server, library: str) -> int:
-    try:
-        return plex_client.get_section(server, library).totalSize
-    except Exception:
-        return 0
-
-
-def _import_legacy_once(store: Store, config: AppConfig, run) -> None:
-    """Seed the database from v1's logs/*.txt the first time a library runs."""
-    key = f"legacy_imported::{run.library}"
-    if store.kv_get(key):
-        return
-    imported = store.import_legacy_logs(
-        "logs", run.library, run.type.value, config.fingerprint(run)
-    )
-    store.kv_set(key, "1")
-    if imported:
-        log.info("Imported %d entries from the v1 progress files for %s", imported, run.library)
+    return 1 if any(r.failed for r in reports if r.action in ("genres", "collections")) else 0
 
 
 async def cmd_query(args, config: AppConfig, store: Store, style: Style) -> int:
@@ -410,69 +387,34 @@ def cmd_failures(args, store: Store, style: Style, as_json: bool) -> int:
     return 0
 
 
-def cmd_doctor(config_path: str, store: Store, style: Style) -> int:
+def cmd_doctor(config_path: str, store: Store, style: Style, as_json: bool = False) -> int:
     """Check the config, the credentials and the anime genre names."""
-    problems = 0
-    try:
-        config = load_config(config_path)
-    except ConfigError as exc:
-        print(style.red(str(exc)))
-        return 1
-    print(f"{style.green('OK')} config parses ({len(config.libraries)} libraries)")
+    report = run_doctor(config_path, store)
+    if as_json:
+        print(json.dumps(report.as_dict(), indent=2, ensure_ascii=False))
+        return 0 if report.ok else 1
+    _print_doctor(report, style)
+    return 0 if report.ok else 1
 
-    try:
-        config.plex.validate_usable()
-        mode = "token" if config.plex.uses_token_auth else "username/password"
-        print(f"{style.green('OK')} Plex credentials present ({mode})")
-    except ConfigError as exc:
-        print(style.red("!!") + f" {exc}")
-        problems += 1
 
-    needs_tmdb = any(r.type is not MediaType.ANIME for r in config.libraries)
-    if needs_tmdb and not config.providers.tmdb_api_key:
-        print(style.red("!!") + " TMDB_API_KEY is unset but you have non-anime libraries.")
-        problems += 1
-
-    live = fetch_live_genres(store)
-    if live is None:
-        print(style.yellow("??") + " Could not reach MyAnimeList to check genre names.")
-    else:
-        anime_rules = config.defaults.get(MediaType.ANIME)
-        if anime_rules is not None:
-            names = [*anime_rules.sorted_collections, *anime_rules.ignore,
-                     *anime_rules.replace.keys()]
-            stale = check_names(names, live)
-            if stale:
-                problems += 1
-                print(style.yellow("!!") + f" {len(stale)} anime genre name(s) MAL no longer uses:")
-                for name, replacement in stale:
-                    hint = (
-                        f" -> {style.green(replacement)}"
-                        if replacement
-                        else style.dim(" (retired)")
-                    )
-                    print(f"     {name}{hint}")
-            else:
-                print(f"{style.green('OK')} anime genre names match the current MAL taxonomy")
-
-    for run in config.libraries:
-        defaults = config.defaults.get(run.type)
-        capped = run.overrides is not None or (
-            defaults is not None and defaults.max_genres is not None
-        )
-        if run.use_keywords and not capped:
-            print(
-                style.yellow("??")
-                + f" {run.library}: useKeywords with no maxGenres. "
-                "TMDB can return 50+ keywords per title."
-            )
-
+def _print_doctor(report: DoctorReport, style: Style) -> None:
+    badge = {"ok": style.green("OK"), "warn": style.yellow("!!"), "error": style.red("!!")}
+    for check in report.checks:
+        line = f"{badge[check.level]} {check.title}"
+        if check.detail and check.level == "ok":
+            line += style.dim(f" ({check.detail})")
+        print(line)
+        if check.detail and check.level != "ok":
+            print(f"   {check.detail}")
+        for item in check.items:
+            print(f"     {item}")
     print()
-    if problems:
-        print(style.yellow(f"{problems} thing(s) to look at."))
-        return 1
-    print(style.green("Everything looks fine."))
-    return 0
+    if report.errors:
+        print(style.red(f"{report.errors} error(s), {report.warnings} warning(s)."))
+    elif report.warnings:
+        print(style.yellow(f"{report.warnings} thing(s) to look at."))
+    else:
+        print(style.green("Everything looks fine."))
 
 
 def cmd_migrate_config(config_path: str, out: str | None, style: Style) -> int:
@@ -494,48 +436,61 @@ def cmd_migrate_config(config_path: str, out: str | None, style: Style) -> int:
 
 async def cmd_schedule(args, config_path: str, db_path: str, style: Style) -> int:
     """Run on a schedule in the foreground, replacing the container's crond."""
-    from croniter import croniter
-
-    if not croniter.is_valid(args.cron):
-        print(style.red(f"Invalid cron expression: {args.cron!r}"))
+    try:
+        validate_cron(args.cron)
+    except ValueError as exc:
+        print(style.red(str(exc)))
         return 2
 
     print(f"Scheduler started. Cron: {style.cyan(args.cron)}")
-    if args.now:
-        await _scheduled_pass(args, config_path, db_path, style)
 
-    while True:
-        now = time.time()
-        nxt = croniter(args.cron, now).get_next(float)
-        wait = max(nxt - now, 1.0)
-        print(style.dim(
-            f"Next run at {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(nxt))} "
-            f"(in {int(wait)}s)"
-        ))
+    def announce(fire_at: float) -> None:
+        when = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(fire_at))
+        print(style.dim(f"Next run at {when} (in {int(fire_at - time.time())}s)"))
+
+    async def one_pass() -> None:
+        stamp = time.strftime("%Y-%m-%d %H:%M:%S")
+        print(f"\n{style.bold(f'--- scheduled run {stamp} ---')}")
         try:
-            await asyncio.sleep(wait)
-        except asyncio.CancelledError:
-            print("\nScheduler stopped.")
-            return 0
-        await _scheduled_pass(args, config_path, db_path, style)
+            config = load_config(config_path)
+            with Store(db_path) as store:
+                run_args = argparse.Namespace(
+                    library=None, type=None, dry=False, force=False, yes=True,
+                    no_progress=True, only=None, posters_dir=args.posters_dir, json=False,
+                )
+                await cmd_run(run_args, config, store, style)
+        except PagError as exc:
+            print(style.red(f"Run failed: {exc}"))
 
-
-async def _scheduled_pass(args, config_path: str, db_path: str, style: Style) -> None:
-    stamp = time.strftime("%Y-%m-%d %H:%M:%S")
-    print(f"\n{style.bold(f'--- scheduled run {stamp} ---')}")
     try:
-        config = load_config(config_path)
-        with Store(db_path) as store:
-            run_args = argparse.Namespace(
-                library=None, type=None, dry=False, force=False, yes=True,
-                no_progress=True, only=None, posters_dir=args.posters_dir, json=False,
-            )
-            await cmd_run(run_args, config, store, style)
-    except PagError as exc:
-        print(style.red(f"Run failed: {exc}"))
-    except Exception as exc:  # keep the scheduler alive across failures
-        log.exception("Scheduled run crashed")
-        print(style.red(f"Run crashed: {exc}"))
+        await run_forever(args.cron, one_pass, run_now=args.now, on_schedule=announce)
+    except asyncio.CancelledError:
+        print("\nScheduler stopped.")
+    return 0
+
+
+def cmd_serve(args, style: Style) -> int:
+    """Start uvicorn with the app; the scheduler rides along when --cron is set."""
+    import uvicorn
+
+    from .server import create_app
+
+    if args.cron:
+        try:
+            validate_cron(args.cron)
+        except ValueError as exc:
+            print(style.red(str(exc)))
+            return 2
+
+    app = create_app(
+        args.config, args.db,
+        cron=args.cron, run_on_start=args.now,
+        posters_dir=args.posters_dir, static_dir=args.static_dir,
+    )
+    print(f"plex-auto-genres UI on {style.cyan(f'http://{args.host}:{args.port}')}"
+          f"  (API docs: /api/docs)")
+    uvicorn.run(app, host=args.host, port=args.port, log_level="info", access_log=False)
+    return 0
 
 
 # --------------------------------------------------------------------------
@@ -563,7 +518,7 @@ def main(argv: list[str] | None = None) -> int:
 
         with Store(args.db) as store:
             if args.command == "doctor":
-                return cmd_doctor(args.config, store, style)
+                return cmd_doctor(args.config, store, style, args.json)
             if args.command == "bind":
                 return cmd_bind(args, store, style)
             if args.command == "unbind":
@@ -576,6 +531,9 @@ def main(argv: list[str] | None = None) -> int:
                 return cmd_failures(args, store, style, args.json)
             if args.command == "schedule":
                 return asyncio.run(cmd_schedule(args, args.config, args.db, style))
+            if args.command == "serve":
+                store.close()  # the app's lifespan opens its own connection
+                return cmd_serve(args, style)
 
             config = load_config(args.config)
             if args.command == "query":

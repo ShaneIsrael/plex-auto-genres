@@ -213,3 +213,42 @@ Most of these are thin wrappers over methods that already exist, which is the po
 - **Do not add a task broker.** In-process `asyncio` tasks plus the `runs` table cover
   every stated requirement; Redis/Celery would be the largest operational regression
   available.
+
+---
+
+## Status
+
+### Phase 1 — done
+
+Shipped: `plex_auto_genres/server/` (FastAPI) and `ui/` (Vite + React + TS), wired into
+the Docker image with the scheduler in the same process. Read-only, as planned.
+
+Decisions taken while building it, for whoever picks up phase 2:
+
+- **`runner.run_libraries`** is the seam. `cli.cmd_run`, the `schedule` command and the
+  server's scheduled pass all call it; the job manager will too. It takes callbacks for
+  "library started" and "report ready" rather than knowing about progress bars or SSE.
+- **`doctor.run_doctor`** returns structured checks; the CLI and `/api/v1/doctor` render
+  the same object.
+- **Run status is derived, not stored**: `undone` > `running` / `interrupted` (an
+  unfinished run older than this process is interrupted) > `failed` / `partial` / `ok`
+  from the report. Phase 2 should keep it derived and simply update `finished_at`.
+- **Secrets never leave the process.** `/api/v1/config` reports `set`/`unset` booleans
+  plus the non-secret connection fields. Keep it that way when the config becomes
+  writable: accept a token on PUT, never echo it back.
+- **SPA hosting**: `/api/*` is matched first; any other GET returns `index.html` unless
+  it names a real file under the static dir. An explicit `--static-dir` that holds no
+  build is an error state (503 with instructions), not a silent fallback.
+- **Docker**: the UI builds in a `node:22-alpine` stage with `PAG_UI_OUT=/ui/dist`, and
+  the runtime reads `PAG_STATIC_DIR=/app/static`. pnpm ≥ 10 refuses install scripts
+  unless allow-listed, so `ui/pnpm-workspace.yaml` carries `allowBuilds: { esbuild: true }`.
+- **Polling cadence** in the UI is deliberately slow (health 30 s, runs 15 s, libraries
+  60 s). SSE replaces the runs poll in phase 2; the others can stay.
+- **No auth yet.** The compose file says so in a comment and binds nothing beyond the
+  port; do not put this on the internet.
+
+### Phase 2 — next
+
+Job manager (`asyncio.Task` per run, `Lock` per library), `POST /libraries/{name}/run`,
+`GET /jobs/{id}/events` as SSE, cancel, and `POST /jobs/{id}/undo`. The RunDetail page
+already has the disabled "Undo run" button and the "still running" copy in place.

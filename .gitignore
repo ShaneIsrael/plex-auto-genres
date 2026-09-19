@@ -23,3 +23,8 @@ docker-compose.override.yml
 
 # Session scratch from the remember hook
 .remember/
+
+# Built web UI (produced by `pnpm --dir ui build`, shipped inside the Docker image)
+plex_auto_genres/server/static/
+ui/node_modules/
+ui/dist/

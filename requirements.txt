@@ -12,3 +12,5 @@ httpx>=0.27,<0.29
 pydantic>=2.6,<3
 python-dotenv>=1.0,<2
 croniter>=2.0,<7
+fastapi>=0.115,<1
+uvicorn[standard]>=0.30,<1

@@ -3,6 +3,8 @@ services:
     container_name: plex-auto-genres
     image: ghcr.io/dim145/plex-auto-genres:latest
     restart: unless-stopped
+    ports:
+      - "8095:8095"          # web UI + API; drop this block for a headless install
     volumes:
       - ./config:/config     # must contain config.json
       - ./logs:/logs         # state database and run history
@@ -14,6 +16,9 @@ services:
       PLEX_COLLECTION_PREFIX: ""
       # --- Metadata providers
       TMDB_API_KEY: "${TMDB_API_KEY:-}"   # not needed for anime-only setups
+      # --- Mode: "serve" (web UI + scheduler) or "schedule" (headless, as v1)
+      PAG_MODE: "serve"
+      PAG_WEB_PORT: "8095"
       # --- Scheduling
       CRON_SCHEDULE: "0 1 * * *"
       RUN_ON_START: "true"
@@ -23,6 +28,9 @@ services:
     # The image already runs as uid 1000; override if your volumes differ.
     # user: "1000:1000"
 
+# The UI has no authentication yet (planned). Keep the port on your LAN or
+# behind a reverse proxy that adds auth; do not expose it to the internet.
+#
 # Secrets note: putting PLEX_TOKEN directly in this file means it lands in
 # `docker inspect` and your shell history. Prefer a .env file beside the
 # compose file (git-ignored), or Docker secrets on Swarm.

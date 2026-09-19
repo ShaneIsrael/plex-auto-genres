@@ -15,3 +15,6 @@ config/config.json
 *.md
 !README.md
 posters/genre-template.psd
+ui/node_modules
+ui/dist
+plex_auto_genres/server/static

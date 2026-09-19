@@ -15,6 +15,8 @@ dependencies = [
     "pydantic>=2.6,<3",
     "python-dotenv>=1.0,<2",
     "croniter>=2.0,<7",
+    "fastapi>=0.115,<1",
+    "uvicorn[standard]>=0.30,<1",
 ]
 
 [project.optional-dependencies]
@@ -34,6 +36,10 @@ Homepage = "https://github.com/Dim145/plex-auto-genres"
 
 [tool.setuptools.packages.find]
 include = ["plex_auto_genres*"]
+
+[tool.setuptools.package-data]
+# The built web UI, when `pnpm --dir ui build` has run before packaging.
+"plex_auto_genres.server" = ["static/**/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

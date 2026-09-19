@@ -57,6 +57,31 @@ plex-auto-genres doctor
 
 ---
 
+## Web UI
+
+`plex-auto-genres serve` hosts a read-only console on http://127.0.0.1:8095 — overview,
+run history with the last-forty-runs tape, libraries with coverage, manual bindings, and
+the config with the doctor checks. The Docker image runs it by default and keeps the
+nightly scheduler in the same process.
+
+```bash
+plex-auto-genres serve --cron "0 1 * * *"      # UI + API + scheduler
+plex-auto-genres serve --host 0.0.0.0           # reachable from the LAN
+```
+
+| Env (container) | Default | Purpose |
+|---|---|---|
+| `PAG_MODE` | `serve` | `serve` = UI + scheduler; `schedule` = headless, as v1 |
+| `PAG_WEB_PORT` | `8095` | Port the UI listens on |
+
+The API is documented at `/api/docs`. **There is no authentication yet** — keep the port
+on your LAN or behind a reverse proxy that adds it.
+
+Writing from the UI (running jobs, editing config, adding bindings) is the next phase;
+see [docs/webui-design.md](docs/webui-design.md).
+
+---
+
 ## Commands
 
 ```bash
@@ -174,6 +199,18 @@ pytest -q
 pylint plex_auto_genres
 ```
 
+The UI is a Vite + React + TypeScript app in `ui/`:
+
+```bash
+pnpm --dir ui install
+pnpm --dir ui dev          # http://localhost:5173, proxies /api to :8095
+pnpm --dir ui build        # emits into plex_auto_genres/server/static/
+```
+
+Run `plex-auto-genres serve` alongside `pnpm dev` for live reload. The Docker build
+compiles the UI in its own stage, so node never enters the runtime image. Design notes:
+[docs/design-system.md](docs/design-system.md).
+
 The layout is deliberately service-shaped rather than CLI-shaped, because a web UI is
 planned:
 
@@ -184,7 +221,10 @@ plex_auto_genres/
   pipeline.py    async orchestration, one library per run
   providers/     tmdb, jikan, anilist + the AniDB->MAL id mapping
   plexsvc/       reading libraries and writing tags back
+  server/        FastAPI: /api/v1 read-only routes, SPA hosting, in-process scheduler
+  runner.py      run libraries end to end; shared by the CLI and the server
   cli.py         argparse front end over the above
+ui/              Vite + React + TypeScript console
 ```
 
 ## Licence

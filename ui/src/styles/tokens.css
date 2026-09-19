@@ -1,0 +1,88 @@
+/* Design tokens — see docs/design-system.md ("Master Control").
+   Semantic names only: components never reference a raw colour. */
+:root {
+  color-scheme: dark;
+
+  /* surfaces: warm near-black, never blue-black */
+  --bg: #0e0d0b;
+  --surface-1: #151311;
+  --surface-2: #1c1916;
+  --surface-3: #242019;
+  --surface-hover: #2a251d;
+
+  /* ink */
+  --ink: #f2ede4;
+  --ink-2: #b3aa9c;
+  --ink-3: #776f66;
+  --ink-4: #4a443d;
+
+  /* hairlines instead of shadows */
+  --line: rgba(242, 237, 228, 0.09);
+  --line-strong: rgba(242, 237, 228, 0.18);
+
+  /* functional accents: amber = Plex / writes, teal = providers / reads */
+  --amber: #f0a52a;
+  --amber-ink: #ffc466;
+  --amber-dim: rgba(240, 165, 42, 0.14);
+  --teal: #3ec9b0;
+  --teal-ink: #7ee3d0;
+  --teal-dim: rgba(62, 201, 176, 0.14);
+
+  /* status */
+  --ok: #5ccf7a;
+  --ok-dim: rgba(92, 207, 122, 0.14);
+  --warn: var(--amber);
+  --warn-dim: var(--amber-dim);
+  --fail: #ff5c5c;
+  --fail-dim: rgba(255, 92, 92, 0.14);
+  --muted-dim: rgba(242, 237, 228, 0.06);
+
+  /* type */
+  --font-display: "Bricolage Grotesque", "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --font-sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+
+  --fs-12: 0.75rem;
+  --fs-13: 0.8125rem;
+  --fs-14: 0.875rem;
+  --fs-15: 0.9375rem;
+  --fs-16: 1rem;
+  --fs-20: 1.25rem;
+  --fs-28: 1.75rem;
+  --fs-44: 2.75rem;
+  --fs-72: 4.5rem;
+
+  /* geometry */
+  --radius: 6px;
+  --radius-sm: 4px;
+  --rail-w: 232px;
+  --strip-h: 44px;
+  --content-max: 1240px;
+  --gutter: 16px;
+
+  /* motion */
+  --dur-fast: 150ms;
+  --dur: 220ms;
+  --dur-slow: 320ms;
+  --ease-out: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --ease-in: cubic-bezier(0.6, 0, 0.9, 0.4);
+  --stagger: 35ms;
+
+  /* layers */
+  --z-strip: 10;
+  --z-rail: 20;
+  --z-overlay: 100;
+  --z-texture: 1000;
+}
+
+@media (min-width: 768px) {
+  :root {
+    --gutter: 24px;
+  }
+}
+
+@media (min-width: 1024px) {
+  :root {
+    --gutter: 40px;
+  }
+}
