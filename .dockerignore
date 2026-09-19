@@ -1,0 +1,17 @@
+.git
+.github
+.remember
+.venv
+venv
+__pycache__
+*.pyc
+*.pyo
+.pytest_cache
+.ruff_cache
+tests
+logs
+config/config.json
+.env
+*.md
+!README.md
+posters/genre-template.psd

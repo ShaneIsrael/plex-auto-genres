@@ -1,0 +1,68 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "plex-auto-genres"
+version = "2.0.0"
+description = "Automatically tag Plex media with genres from TMDB, MyAnimeList or AniList."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+dependencies = [
+    "PlexAPI>=4.15,<5",
+    "httpx>=0.27,<0.29",
+    "pydantic>=2.6,<3",
+    "python-dotenv>=1.0,<2",
+    "croniter>=2.0,<7",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "respx>=0.21",
+    "pylint>=3.0",
+    "pylint-pydantic>=0.3",
+]
+
+[project.scripts]
+plex-auto-genres = "plex_auto_genres.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/Dim145/plex-auto-genres"
+
+[tool.setuptools.packages.find]
+include = ["plex_auto_genres*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+filterwarnings = ["error::DeprecationWarning:plex_auto_genres.*"]
+
+[tool.pylint.main]
+py-version = "3.11"
+ignore-paths = ["^tests/.*$"]
+# Without this, pylint does not understand pydantic's Field() descriptors and
+# reports false E1101 "has no member" errors on every model attribute.
+load-plugins = ["pylint_pydantic"]
+
+[tool.pylint."messages control"]
+disable = ["missing-module-docstring", "too-few-public-methods", "duplicate-code",
+           "too-many-arguments", "too-many-instance-attributes", "too-many-locals",
+           "too-many-positional-arguments", "broad-exception-caught", "import-outside-toplevel"]
+
+[tool.pylint.basic]
+# Require docstrings on anything substantial, not on one-line accessors.
+docstring-min-length = 5
+
+[tool.pylint.design]
+max-public-methods = 25
+# An argparse builder and its dispatcher are flat sequences of cases, not
+# tangled logic; splitting them up would hurt readability rather than help it.
+max-statements = 60
+max-branches = 16
+max-returns = 16
+
+[tool.pylint.format]
+max-line-length = 100

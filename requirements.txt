@@ -1,5 +1,14 @@
-requests
-plexapi
-python-dotenv
-numpy
-tmdbv3api
+# Runtime dependencies. Pinned to compatible ranges so an image rebuilt
+# months from now behaves like the one that was tested.
+#
+# Removed in v2:
+#   numpy      -- was used only to concatenate a 9-element list of strings,
+#                 and was the sole reason the Alpine image needed gcc/g++/musl-dev.
+#   requests   -- superseded by httpx (async + HTTP/2).
+#   tmdbv3api  -- synchronous, and its AsObj unwrapping differed between
+#                 movies and TV, which broke --use-keywords for movies.
+PlexAPI>=4.15,<5
+httpx>=0.27,<0.29
+pydantic>=2.6,<3
+python-dotenv>=1.0,<2
+croniter>=2.0,<7

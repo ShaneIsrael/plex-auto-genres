@@ -1,79 +1,95 @@
 {
-    "general_settings": {
-        "genres": {
-            "standard-tv": {
-                "ignore": [],
-                "replace": {
-                    "sci-fi": "science fiction"
-                },
-                "sortedPrefix": "",
-                "sortedCollections": ["action", "adventure", "animation", "comedy", "crime", "documentary", "drama", "family", "fantasy", "history", "kids", "politics", "reality", "sci-fi", "science fiction", "war", "western"]
+    "//": "plex-auto-genres v2 config. A v1 file still works: it is migrated in memory on load. Run 'plex-auto-genres migrate-config --out config/config.json' to convert it on disk. Full schema: 'plex-auto-genres schema'. Validate yours: 'plex-auto-genres doctor'.",
+    "version": 2,
+
+    "defaults": {
+        "//": "Genre rules per library TYPE. A library can override any of these under its own 'overrides' key.",
+
+        "anime": {
+            "ignore": ["Kids", "Erotica"],
+            "replace": {
+                "//": "Keys are matched case-insensitively. MAL renamed several genres: Shoujo Ai -> Girls Love, Shounen Ai -> Boys Love, Cars -> Racing, Thriller -> Suspense.",
+                "girls love": "Shoujo",
+                "boys love": "Shounen"
             },
-            "standard-movie": {
-                "ignore": ["TV Movie"],
-                "replace": {},
-                "sortedPrefix": "*",
-                "sortedCollections": ["action", "adventure", "animation", "comedy", "crime", "documentary", "drama", "family", "fantasy", "history", "horror", "music", "mystery", "romance", "science fiction", "thriller", "war", "western"]
-            },
-            "anime": {
-                "ignore": ["dont create collection for this genre", "kids", "seinen", "police"],
-                "replace": {
-                    "the genre to replace": "value to replace with",
-                    "must be lowercase": "Any fOrmAtted Value",
-                    "shoujo ai": "shoujo",
-                    "shounen ai": "shounen"
-                },
-                "sortedPrefix": "*",
-                "sortedCollections": ["action", "adventure", "cars", "comedy", "dementia", "demons", "drama", "ecchi", "fantasy", "game", "harem", "historical", "horror", "magic", "martial arts", "mecha", "military", "music", "mystery", "psychological", "romance", "samurai", "school", "sci-fi", "shoujo", "shounen", "slice of life", "space", "sports", "supernatural", "super power", "thriller", "vampire"]
-            }
+            "sortedPrefix": "*",
+            "sortedCollections": [
+                "action", "adventure", "comedy", "drama", "ecchi", "fantasy",
+                "harem", "historical", "horror", "isekai", "martial arts",
+                "mecha", "military", "music", "mystery", "psychological",
+                "racing", "romance", "samurai", "school", "sci-fi", "seinen",
+                "shoujo", "shounen", "slice of life", "space", "sports",
+                "super power", "supernatural", "suspense", "vampire"
+            ]
+        },
+
+        "standard-tv": {
+            "ignore": [],
+            "replace": { "sci-fi": "Science Fiction" },
+            "sortedPrefix": "*",
+            "sortedCollections": [
+                "action", "adventure", "animation", "comedy", "crime",
+                "documentary", "drama", "family", "fantasy", "history", "kids",
+                "mystery", "politics", "reality", "science fiction", "war",
+                "western"
+            ]
+        },
+
+        "standard-movie": {
+            "ignore": ["TV Movie"],
+            "replace": {},
+            "sortedPrefix": "*",
+            "sortedCollections": [
+                "action", "adventure", "animation", "comedy", "crime",
+                "documentary", "drama", "family", "fantasy", "history",
+                "horror", "music", "mystery", "romance", "science fiction",
+                "thriller", "war", "western"
+            ]
         }
     },
-    "automation_settings": {
-        "run": [
-            {
-                "library": "Movies",
-                "type": "standard-movie",
-                "setPosters": false,
-                "sortCollections": false,
-                "rateAnime": false,
-                "createRatingCollections": false,
-                "useKeywords": false,
-                "useGenres": false,
-                "clearGenres": false,
-            },
-            {
-                "library": "Anime Shows",
-                "type": "anime",
-                "setPosters": false,
-                "sortCollections": false,
-                "rateAnime": false,
-                "createRatingCollections": false,
-                "useKeywords": false,
-                "useGenres": false,
-                "clearGenres": false,
-            },
-            {
-                "library": "TV Shows",
-                "type": "standard-tv",
-                "setPosters": false,
-                "sortCollections": false,
-                "rateAnime": false,
-                "createRatingCollections": false,
-                "useKeywords": false,
-                "useGenres": false,
-                "clearGenres": false,
-            },
-            {
-                "library": "some other library",
-                "type": "some other type",
-                "setPosters": "upload cover art located in /posters?",
-                "sortCollections": "add sort prefix to collections sort title?",
-                "rateAnime": "Will update an anime library with ratings from MyAnimeList (use only on anime librares)",
-                "createRatingCollections": "Will create up to 5 collections (1-5 star system) based on media ratings",
-                "useKeywords": "Will create collections based on keywords in tmdb instead of genres",
-                "useGenres": "Will create genres instead of collections",
-                "clearGenres": "Will clear all genres from media before creating new ones"
+
+    "libraries": [
+        {
+            "//": "Library names must match Plex exactly.",
+            "library": "Anime Shows",
+            "type": "anime",
+            "enabled": true,
+
+            "//providers": "Tried in order until one returns genres. anime: jikan, anilist. standard-*: tmdb.",
+            "providers": ["jikan", "anilist"],
+
+            "//useGenres": "true writes Plex's genre field; false creates collections instead.",
+            "useGenres": true,
+            "//clearGenres": "Replace the existing genres rather than adding to them. Requires useGenres. Every run is reversible with 'plex-auto-genres undo <run-id>'.",
+            "clearGenres": true,
+
+            "setPosters": false,
+            "sortCollections": false,
+            "rateAnime": false,
+            "createRatingCollections": false
+        },
+        {
+            "library": "TV Shows",
+            "type": "standard-tv",
+            "useGenres": false,
+            "sortCollections": true,
+
+            "//overrides": "Per-library rules, layered on top of the type defaults above. This is what lets two libraries of the same type behave differently.",
+            "overrides": {
+                "ignore": ["Talk", "News"]
             }
-        ]
-    }
+        },
+        {
+            "library": "Movies",
+            "type": "standard-movie",
+            "useGenres": false,
+            "setPosters": true,
+
+            "//useKeywords": "TMDB keywords instead of genres: far more specific, far noisier. Pair it with maxGenres.",
+            "useKeywords": true,
+            "overrides": {
+                "maxGenres": 8
+            }
+        }
+    ]
 }

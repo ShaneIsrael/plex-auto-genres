@@ -1,135 +1,192 @@
-# Plex Auto Genres
-![](https://img.shields.io/docker/cloud/build/shaneisrael/plex-auto-genres)
+# plex-auto-genres
 
-Plex Auto Genres is a simple script that will add genre collection or genres tags to your media making it much easier to search for genre specific content
+Tags your Plex media with genres from **TMDB**, **MyAnimeList** (Jikan) or **AniList** —
+as Plex genre tags or as collections.
 
-1. [Requirements](#requirements)
-2. [Optimal Setup](#optimal)
-3. [Getting Started](#getting_started)
-4. [Automating](#automating)
-5. [Docker Usage](#docker_usage)
-6. [Troubleshooting](#troubleshooting)
+> **v2 rewrite.** Fork of the upstream [ShaneIsrael/plex-auto-genres](https://github.com/ShaneIsrael/plex-auto-genres),
+> which has been unmaintained since December 2022. v2 fixes several silent data bugs,
+> is roughly an order of magnitude faster, and every run is reversible.
+> Your existing `config.json` and `logs/` still work — see [Upgrading](#upgrading-from-v1).
 
-###### Movies example (with cover art set using --set-posters flag.)
-![Movie Collections](/.github/images/movies.png)
+---
 
-###### Anime example
-![Anime Collections](/.github/images/animes.png)
+## What it does
 
-## Requirements
-1. Python 3 - Instructions > [Windows / Mac / Linux](https://installpython3.com/) (Not required if using Docker)
-2. [TMDB Api Key](https://developers.themoviedb.org/3/getting-started/introduction) (Only required for non-anime libraries)
+| | |
+|---|---|
+| **Genres from three sources** | TMDB for films and TV, Jikan and AniList for anime. Providers are tried in order until one answers. |
+| **Uses the ids Plex already has** | Reads `tmdb://`, `mal://`, `anidb://`… straight off the Plex item, so no title search and no wrong match. |
+| **Genre tags or collections** | Per library. |
+| **Reversible** | Every write is snapshotted. `plex-auto-genres undo <run-id>` puts it back. |
+| **Manual binding** | Pin an item to an exact provider id when the automatic match is wrong. |
+| **Rating collections & posters** | `1–5 Star Rating` collections, collection artwork, sort-title prefixes. |
+| **Built-in scheduler** | No cron inside the container. |
 
+---
 
-## <a id="optimal"></a>Optimal Setup
+## Quick start
 
-1. Anime / Anime Movies are in their own library on your plex server. **_(Anime and Anime Movies can share the same library)_**
-2. Standard TV Shows are in their own library on your plex server.
-3. Standard Movies are in their own library on your plex server.
-4. Proper titles for your media, this makes it easier to find the media. (see https://support.plex.tv/articles/naming-and-organizing-your-tv-show-files/)
+### Docker (recommended)
 
-For this to work well your plex library should be sorted. Meaning standard and non-standard media should not be in the same Plex library. Anime is an example of non-standard media.
-
-If your anime shows and standard tv shows are in the same library, you can still use this script just choose (**standard**) as the type. However, doing this could cause incorrect genres added to some or all of your anime media entries.
-
-###### Here is an example of my plex library setup
-![Plex Library Example](/.github/images/example-library-setup.png)
-
-## <a id="getting_started"></a>Getting Started 
-1. Read the **Optimal Setup** section above
-2. Run `python3 -m pip install -r requirements.txt` to install the required dependencies.
-3. Rename the `.env.example` file to `.env`
-4. Rename the `config/config.json.example` file to `config/config.json`. The default settings are probably fine.
-5. Edit the `.env` file and select your authentication method. 
-- Username & Password
-- [Plex Token](https://support.plex.tv/articles/204059436-finding-an-authentication-token-x-plex-token/)
-6. If you are generating collections for standard media (non anime) you will need to also obtain an [TMDB Api Key](https://developers.themoviedb.org/3/getting-started/introduction) (for movies and tv shows) 
-    |Variable|Authentication method|Value|
-    |---|---|---|
-    |PLEX_USERNAME|Username & password|Your Plex Username|
-    |PLEX_PASSWORD|Username & password|Your Plex Password|
-    |PLEX_SERVER_NAME|Username and password|Your Plex Server Name|
-    |PLEX_BASE_URL|Token|Your Plex Server base URL|
-    |PLEX_TOKEN|Token|Your Plex Token|
-    |PLEX_COLLECTION_PREFIX||(Optional) Prefix for the created Plex collections. For example, with a value of "\*", a collection named "Adventure", the name would instead be "*Adventure".<br><br>Default value : ""|
-    |TMDB_API_KEY||Your TMDB api key (not required for anime library tagging)|
-6. Optional, If you want to update the poster art of your collections. See [`posters/README.md`](https://github.com/ShaneIsrael/plex-auto-genres/tree/master/posters)
-
-You are now ready to run the script
-```
-usage: plex-auto-genres.py [-h] [--library LIBRARY] [--type {anime,standard-movie,standard-tv}] [--set-posters] [--sort] [--rate-anime]
-                           [--create-rating-collections] [--query QUERY [QUERY ...]] [--dry] [--no-progress] [-f] [-y]
-
-Adds genre tags (collections) to your Plex media.
-
-optional arguments:
-  -h, --help            show this help message and exit
-  --library LIBRARY     The exact name of the Plex library to generate genre collections for.
-  --type {anime,standard-movie,standard-tv}
-                        The type of media contained in the library
-  --set-posters         uploads posters located in posters/<type> of matching collections. Supports (.PNG)
-  --sort                sort collections by adding the sort prefix character to the collection sort title
-  --rate-anime          update media ratings with MyAnimeList ratings
-  --create-rating-collections
-                        sorts media into collections based off rating
-  --query QUERY [QUERY ...]
-                        Looks up genre and match info for the given media title.
-  --dry                 Do not modify plex collections (debugging feature)
-  --no-progress         Do not display the live updating progress bar
-  -f, --force           Force proccess on all media (independently of proggress recorded in logs/).
-  -y, --yes
-  --use-keywords        Use keywords instead of genres for standard media.
-  --use-genres          Use collection instead of genres for standard media.
-  --clear-genres        Clear all genre tags from media before re-adding.
-
-
-examples: 
-python plex-auto-genres.py --library "Anime Movies" --type anime
-python plex-auto-genres.py --library "Anime Shows" --type anime
-python plex-auto-genres.py --library Movies --type standard-movie
-python plex-auto-genres.py --library "TV Shows" --type standard-tv
-
-python plex-auto-genres.py --library Movies --type standard-movie --set-posters
-python plex-auto-genres.py --library Movies --type standard-movie --sort
-python plex-auto-genres.py --library Movies --type standard-movie --create-rating-collections
-
-python plex-auto-genres.py --type anime --query chihayafuru
-python plex-auto-genres.py --type standard-movie --query Thor Ragnarok
-
+```bash
+mkdir -p plex-auto-genres/{config,logs} && cd plex-auto-genres
+curl -o config/config.json https://raw.githubusercontent.com/Dim145/plex-auto-genres/master/config/config.json.example
+$EDITOR config/config.json     # library names must match Plex exactly
 ```
 
-![Example Usage](/.github/images/example-usage.gif)
+```bash
+docker run --rm -v "$PWD/config:/config" -v "$PWD/logs:/logs" -e PLEX_BASE_URL="http://192.168.1.10:32400" -e PLEX_TOKEN="xxxx" ghcr.io/dim145/plex-auto-genres doctor
+```
 
-## <a id="automating"></a>Automating
-I have conveniently included a script to help with automating the process of running plex-auto-genres when combined with any number of cron scheduling tools such as `crontab`, `windows task scheduler`, etc. 
+Once `doctor` is happy, use the [compose file](docker/docker-compose.yml):
 
-**If you have experience with Docker I reccommend using my docker image which will run on a schedule.**
+```bash
+docker compose up -d
+```
 
-1. Copy `.env.example` to `.env` and update the values
-2. Copy `config.json.example` to `config.json` and update the values
-4. Each entry in the `run` list will be executed when you run this script
-5. Have some cron/scheduling process execute `python3 automate.py`, I suggest running it manually first to test that its working.
+The image is published for **linux/amd64 and linux/arm64** (Raspberry Pi, ARM Synology,
+Apple Silicon).
 
-**Note:** *The first run of this script may take a long time (minutes to hours) depending on your library sizes.*
+### Locally
 
-**Note:** *Don't be alarmed if you do not see any text output. The terminal output you normally see when running `plex-auto-genres.py` is redirected to the log file **after** each executed `run` in your `config`.*
+```bash
+pip install -e .
+cp .env.example .env && $EDITOR .env
+plex-auto-genres doctor
+```
 
-## <a id="docker_usage"></a>Docker Usage
+---
 
-1. **[Install Docker](https://docs.docker.com/get-docker/)**
-2. **[Install Docker Compose](https://docs.docker.com/compose/install/)**
-3. Clone or Download this repository
-4. Edit `docker/docker-compose.yml` 
-    1. Update the `volumes:` paths to point to the `config`,`logs`,`posters` directories in this repo.
-    2. Update the `environment:` variables. See [Getting Started](#getting_started).
-5. Copy `config/config.json.example` to `config/config.json`
-    1. Edit the `run` array examples to match your needs. When the script runs, each library entry in this array will be updated on your Plex server. 
-6. Run `docker-compose up -d`, **the script will run immediately then proceed to run on a schedule every night at 1am UTC.** Logs will be located at `logs/plex-auto-genres-automate.log`
+## Commands
 
- Another Docker option of this tool can be **[found here.](https://github.com/fdarveau/plex-auto-genres-docker)**
+```bash
+plex-auto-genres run                              # every enabled library
+plex-auto-genres run --library Animes --dry       # preview, writes nothing
+plex-auto-genres run --library Animes --force     # ignore the cache
+plex-auto-genres run --only posters --only sort   # just those actions
 
+plex-auto-genres query "Cowboy Bebop" --type anime
+plex-auto-genres doctor                           # validate config + credentials
+plex-auto-genres runs                             # run history
+plex-auto-genres failures --library Animes
+plex-auto-genres undo 4f2a1c9b0e77                # restore a run's previous tags
 
-## Troubleshooting
-1. If you are not seeing any new collections close your plex client and re-open it.
-2. Delete the generated `plex-*-successful.txt`  and `plex-*-failures.txt` files if you want the script to generate collections from the beginning. You may want to do this if you delete your collections and need them re-created.
-3. Having the release year in the title of a tv show or movie can cause the lookup to fail in some instances. For example `Battlestar Galactica (2003)` will fail, but `Battlestar Galactica` will not.
+plex-auto-genres bind Animes "Monster" mal 19     # pin a provider id
+plex-auto-genres bindings
+plex-auto-genres schema                           # config JSON Schema
+```
+
+`--dry` is honoured by **every** action, and `--json` makes any command emit
+machine-readable output.
+
+### When a match is wrong
+
+```bash
+plex-auto-genres failures --library Animes        # see what could not be resolved
+plex-auto-genres query "Monster" --type anime     # find the right id
+plex-auto-genres bind Animes "Monster" mal 19     # pin it; clears the cached match
+plex-auto-genres run --library Animes
+```
+
+---
+
+## Configuration
+
+Two files: **`.env`** holds credentials, **`config/config.json`** holds behaviour.
+Start from [`config/config.json.example`](config/config.json.example), which documents
+itself with `//` keys (they are ignored on load).
+
+Genre rules are defined per **type** under `defaults`, and any library can override them:
+
+```jsonc
+{
+  "version": 2,
+  "defaults": {
+    "standard-tv": { "replace": { "sci-fi": "Science Fiction" } }
+  },
+  "libraries": [
+    { "library": "TV Shows",  "type": "standard-tv", "useGenres": true },
+    { "library": "Kids TV",   "type": "standard-tv", "useGenres": true,
+      "overrides": { "ignore": ["Horror"] } }
+  ]
+}
+```
+
+That override layer is new in v2. In v1, rules were keyed on media *type* alone, so two
+libraries of the same type could not be configured separately — and, worse, shared one
+progress file.
+
+`plex-auto-genres schema` prints the JSON Schema, so editors can autocomplete it.
+
+### Environment
+
+| Variable | Purpose |
+|---|---|
+| `PLEX_BASE_URL`, `PLEX_TOKEN` | Preferred auth. [Finding your token](https://support.plex.tv/articles/204059436) |
+| `PLEX_USERNAME`, `PLEX_PASSWORD`, `PLEX_SERVER_NAME` | Legacy auth, used only if no token |
+| `PLEX_COLLECTION_PREFIX` | Prepended to every tag this tool writes |
+| `TMDB_API_KEY` | Required for `standard-tv` / `standard-movie` |
+| `PAG_CONCURRENCY` | Parallel provider lookups (default 4) |
+| `CRON_SCHEDULE`, `RUN_ON_START`, `TZ` | Container scheduling |
+
+---
+
+## Upgrading from v1
+
+Nothing is required: a v1 `config.json` is migrated in memory at load, the old
+`logs/plex-*-*.txt` progress files are imported into the database on first run, and
+`python plex-auto-genres.py --library X --type anime` still works.
+
+To convert the file on disk:
+
+```bash
+plex-auto-genres migrate-config --out config/config.json
+```
+
+Then run `plex-auto-genres doctor` — it will flag config entries that no longer match
+anything, including MAL genres that were renamed (`Cars` → `Racing`,
+`Shoujo Ai` → `Girls Love`, `Thriller` → `Suspense`, …).
+
+### What changed, and why it matters
+
+| v1 behaviour | v2 |
+|---|---|
+| `for genre in genres: media.addGenre(genre)` — each write rebuilt the tag list from a stale cache, so **only the last genre survived**, at one HTTP request each | One request per item, all genres kept |
+| `clearGenres: true` called `editTags('genre', [])`, which re-sent the existing tags — **it cleared nothing** | Actually replaces the tag set |
+| `--rate-anime` passed a *string* to `rate()`, which rejects non-numerics — **it aborted on the first item** | Ratings are sent as floats |
+| `"Sci-Fi & Fantasy"` was split and only the first half kept, silently **discarding Fantasy, Adventure and Politics** | Both halves are kept |
+| `--use-keywords` read `.results` for movies too, where the field is `.keywords` — **`AttributeError` on every film** | Correct per media type |
+| Progress keyed on media *type*, so two libraries of one type shared and poisoned a cache | Keyed on library + item GUID + a settings fingerprint |
+| A failure blacklisted a title permanently unless `--force` wiped everything | Retried with exponential backoff |
+| Searched by title and took `results[0]` | Uses the item's Plex GUID; falls back to a title + year search |
+| A blind `sleep(4)` twice per anime — 8 s of dead time per title | Token buckets at the providers' real limits, requests in parallel |
+| Destructive and irreversible | Every run snapshotted and undoable |
+| `--dry` only honoured in one code path | Honoured everywhere |
+| amd64 only, 571 MB image, `gcc`/`g++` pulled in for numpy — which concatenated a list of 9 strings | amd64 + arm64, 97 MB, no compilers |
+
+---
+
+## Development
+
+```bash
+pip install -r requirements-dev.txt && pip install -e .
+pytest -q
+pylint plex_auto_genres
+```
+
+The layout is deliberately service-shaped rather than CLI-shaped, because a web UI is
+planned:
+
+```
+plex_auto_genres/
+  config.py      pydantic models -> validation and a JSON Schema for forms
+  store.py       SQLite: cache, manual bindings, undo snapshots, run history
+  pipeline.py    async orchestration, one library per run
+  providers/     tmdb, jikan, anilist + the AniDB->MAL id mapping
+  plexsvc/       reading libraries and writing tags back
+  cli.py         argparse front end over the above
+```
+
+## Licence
+
+MIT. Poster artwork from the upstream project.
