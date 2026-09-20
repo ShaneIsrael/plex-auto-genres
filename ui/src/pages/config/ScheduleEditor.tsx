@@ -29,6 +29,12 @@ export function ScheduleEditor({
 }) {
   const cron = value.cron ?? "";
   const trimmed = cron.trim();
+  // Whitespace is not an expression: store it as "unset" so the document does
+  // not differ from a saved null by a space nobody can see.
+  const set = (next: Partial<ScheduleSettings>) => {
+    const merged = { ...value, ...next };
+    onChange({ ...merged, cron: (merged.cron ?? "").trim() ? merged.cron : null });
+  };
   const [debounced, setDebounced] = useState(trimmed);
   useEffect(() => {
     const handle = window.setTimeout(() => setDebounced(trimmed), 300);
@@ -37,11 +43,18 @@ export function ScheduleEditor({
   const preview = useCronPreview(debounced);
   const fieldError = issueAt(errors, ["schedule", "cron"]);
 
-  const presetKey = SCHEDULE_PRESETS.find((p) => p.cron === trimmed)?.key ?? (trimmed ? "custom" : "server");
+  // "custom" is a sticky choice: it must not snap back to a preset just
+  // because the expression the user started from happens to match one.
+  const [custom, setCustom] = useState(false);
+  const matching = SCHEDULE_PRESETS.find((p) => p.cron === trimmed)?.key;
+  const presetKey = custom || (trimmed && !matching) ? "custom" : matching ?? (trimmed ? "custom" : "server");
   const choosePreset = (key: string) => {
-    const preset = SCHEDULE_PRESETS.find((p) => p.key === key);
-    if (key === "custom") onChange({ ...value, cron: trimmed || "0 2 * * *" });
-    else onChange({ ...value, cron: preset?.cron ?? null });
+    setCustom(key === "custom");
+    if (key === "custom") {
+      set({ cron: trimmed || "0 2 * * *" });
+      return;
+    }
+    set({ cron: SCHEDULE_PRESETS.find((p) => p.key === key)?.cron ?? null });
   };
 
   let status: React.ReactNode;
@@ -65,6 +78,9 @@ export function ScheduleEditor({
     );
   } else if (preview.data && !preview.data.ok) {
     status = <span className="tone-fail">{preview.data.error}</span>;
+  } else if (preview.isError) {
+    // retry is off: say so rather than claiming to still be checking.
+    status = <span className="tone-fail">Could not check this expression ({(preview.error as Error).message}).</span>;
   } else {
     status = <span className="faint">Checking…</span>;
   }
@@ -74,7 +90,7 @@ export function ScheduleEditor({
       <Toggle
         id={`${id}-enabled`}
         checked={value.enabled}
-        onChange={(v) => onChange({ ...value, enabled: v })}
+        onChange={(v) => set({ enabled: v })}
         label={value.enabled ? "Automatic pass on" : "Automatic pass paused"}
         help={help("ScheduleSettings", "enabled") ?? "Off pauses the schedule; the expression is kept."}
       />
@@ -102,7 +118,7 @@ export function ScheduleEditor({
             placeholder="minute hour day month weekday"
             spellCheck={false}
             aria-describedby={describedBy(`${id}-cron`, true, fieldError)}
-            onChange={(e) => onChange({ ...value, cron: e.target.value || null })}
+            onChange={(e) => set({ cron: e.target.value })}
           />
         </Field>
       </div>

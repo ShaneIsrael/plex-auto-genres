@@ -20,6 +20,11 @@ import { RulesEditor } from "./config/RulesEditor";
 import { SaveBar, type ValidationStatus } from "./config/SaveBar";
 import { ScheduleEditor } from "./config/ScheduleEditor";
 
+/** Anything the user does to move the page themselves cancels the anchoring. */
+const USER_SCROLL_EVENTS = ["wheel", "touchstart", "keydown", "pointerdown"] as const;
+/** The status strip is sticky over the top of the scroller (see `scroll-margin-top`). */
+const ANCHOR_OFFSET = 0;
+
 /** Server-side validation, debounced, ignoring out-of-order responses. */
 function useLiveValidation(doc: ConfigDocument | null, active: boolean) {
   const [state, setState] = useState<{ status: ValidationStatus; errors: ValidationIssue[] }>({ status: "idle", errors: [] });
@@ -108,6 +113,8 @@ export default function Config() {
   // /config#schedule and /config#doctor: the target only exists once the
   // draft has rendered, which is after the browser's own scroll attempt, and
   // the panels above it keep growing for a few frames as their data lands.
+  // So: re-anchor until it settles, and get out of the way the moment the
+  // user scrolls themselves.
   const ready = draft !== null;
   useEffect(() => {
     const hash = location.hash || window.location.hash;
@@ -115,16 +122,19 @@ export default function Config() {
     const id = hash.slice(1);
     const started = Date.now();
     let settled = 0;
-    // Poll briefly: on a cold load the section exists before the page has
-    // its final height, and a single scrollIntoView lands short.
+    const stop = () => {
+      window.clearInterval(handle);
+      for (const event of USER_SCROLL_EVENTS) window.removeEventListener(event, stop);
+    };
     const handle = window.setInterval(() => {
       const target = document.getElementById(id);
-      const top = target ? Math.abs(target.getBoundingClientRect().top) : Infinity;
+      const top = target ? Math.abs(target.getBoundingClientRect().top - ANCHOR_OFFSET) : Infinity;
       if (target && top > 8) target.scrollIntoView({ block: "start" });
       settled = top <= 8 ? settled + 1 : 0;
-      if (settled >= 2 || Date.now() - started > 2500) window.clearInterval(handle);
+      if (settled >= 2 || Date.now() - started > 2500) stop();
     }, 100);
-    return () => window.clearInterval(handle);
+    for (const event of USER_SCROLL_EVENTS) window.addEventListener(event, stop, { passive: true });
+    return stop;
   }, [ready, location.hash]);
 
   // The error branch comes first: with a failing GET the draft never
@@ -148,6 +158,10 @@ export default function Config() {
   };
   const setSchedule = (schedule: ScheduleSettings) => setDraft({ ...draft, schedule });
   const definedDefaults = TYPES.filter((t) => draft.defaults[t]).length;
+  // A type whose panel is hidden can still hold the problem that blocks Save.
+  const typeProblems = (type: MediaType) =>
+    issuesUnder(errors, ["defaults", type]).length +
+    Object.entries(localIssues).filter(([id, n]) => id.startsWith(`def-${type}-`) && n).length;
   const setDefault = (type: MediaType, rules: GenreRules | null) => {
     const defaults = { ...draft.defaults };
     if (rules === null) delete defaults[type];
@@ -302,33 +316,43 @@ export default function Config() {
             ariaLabel="Which type's defaults to edit"
             value={defaultsType}
             onChange={setDefaultsType}
-            options={TYPES.map((t) => ({ value: t, label: draft.defaults[t] ? t : `${t} (none)`, hint: draft.defaults[t] ? "Has defaults" : "No defaults yet" }))}
+            options={TYPES.map((t) => ({
+              value: t,
+              label: typeProblems(t) ? `${t} !` : t,
+              hint: typeProblems(t)
+                ? "Has a problem to fix"
+                : draft.defaults[t] ? "Has defaults" : "No defaults yet",
+            }))}
           />
         </div>
-        {(() => {
-          const type = defaultsType;
+        {/* All three stay mounted: a half-typed duplicate key lives in the
+            row editor's own state, and unmounting it would drop the entry
+            and the warning that goes with it. */}
+        {TYPES.map((type) => {
           const rules = draft.defaults[type];
           return (
-            <Panel
-              eyebrow={`Defaults · ${definedDefaults} of ${TYPES.length} types set`}
-              title={type}
-              aside={rules ? <button type="button" className="button button--ghost button--sm" onClick={() => setDefault(type, null)}>Remove</button> : undefined}
-            >
-              {rules ? (
-                <RulesEditor id={`def-${type}`} rules={rules} onChange={(v) => setDefault(type, v)} errors={issuesUnder(errors, ["defaults", type])} loc={["defaults", type]} help={help} />
-              ) : (
-                <div className="stack">
-                  <p className="muted">No defaults for {type} yet: its libraries use the provider's genres as they come.</p>
-                  <div>
-                    <button type="button" className="button button--ghost button--sm" onClick={() => setDefault(type, emptyRules())}>
-                      <Plus size={12} aria-hidden="true" /> Add defaults for {type}
-                    </button>
+            <div key={type} hidden={type !== defaultsType}>
+              <Panel
+                eyebrow={`Defaults · ${definedDefaults} of ${TYPES.length} types set`}
+                title={type}
+                aside={rules ? <button type="button" className="button button--ghost button--sm" onClick={() => setDefault(type, null)}>Remove</button> : undefined}
+              >
+                {rules ? (
+                  <RulesEditor id={`def-${type}`} rules={rules} onChange={(v) => setDefault(type, v)} errors={issuesUnder(errors, ["defaults", type])} loc={["defaults", type]} help={help} />
+                ) : (
+                  <div className="stack">
+                    <p className="muted">No defaults for {type} yet: its libraries use the provider's genres as they come.</p>
+                    <div>
+                      <button type="button" className="button button--ghost button--sm" onClick={() => setDefault(type, emptyRules())}>
+                        <Plus size={12} aria-hidden="true" /> Add defaults for {type}
+                      </button>
+                    </div>
                   </div>
-                </div>
-              )}
-            </Panel>
+                )}
+              </Panel>
+            </div>
           );
-        })()}
+        })}
       </section>
 
       <div className="two-col">

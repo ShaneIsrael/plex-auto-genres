@@ -36,19 +36,6 @@ class RunObserver(Protocol):
         """One action finished."""
 
 
-def import_legacy_once(store: Store, config: AppConfig, run: LibraryRun) -> None:
-    """Seed the database from v1's ``logs/*.txt`` the first time a library runs."""
-    key = f"legacy_imported::{run.library}"
-    if store.kv_get(key):
-        return
-    imported = store.import_legacy_logs(
-        "logs", run.library, run.type.value, config.fingerprint(run)
-    )
-    store.kv_set(key, "1")
-    if imported:
-        log.info("Imported %d v1 progress entries for %s", imported, run.library)
-
-
 async def run_libraries(
     config: AppConfig,
     store: Store,
@@ -84,8 +71,6 @@ async def run_libraries(
             observer.report(report)
 
     for run in runs:
-        import_legacy_once(store, config, run)
-
         if not only or "tags" in only:
             on_begin, progress = hooks(run, "genres" if run.use_genres else "collections")
             emit(await pipeline.tag_library(run, progress=progress, on_begin=on_begin))

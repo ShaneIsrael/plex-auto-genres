@@ -28,15 +28,75 @@ async def test_plan_prefers_the_config_and_honours_pause():
     s.replan()
     assert s.plan.enabled is False and s.plan.next_fire_at is None and s.plan.cron == "0 2 * * *"
 
-    settings["value"] = ("not a cron", True)  # broken by hand: off until fixed
+    # Broken by hand: the expression stays visible so the operator can see
+    # what is wrong, but nothing fires.
+    settings["value"] = ("not a cron", True)
     s.replan()
-    assert (s.plan.cron, s.plan.source, s.plan.next_fire_at) == (None, "none", None)
+    assert (s.plan.cron, s.plan.source, s.plan.next_fire_at) == ("not a cron", "config", None)
 
-    def boom():
-        raise RuntimeError("config unreadable")
+    # Valid fields, no reachable date: same treatment, and refused on save.
+    settings["value"] = ("0 0 30 2 *", True)
+    s.replan()
+    assert s.plan.next_fire_at is None
 
-    s = Scheduler(run, settings=boom, fallback="0 1 * * *")
-    assert (s.plan.cron, s.plan.source) == ("0 1 * * *", "env")
+
+async def test_unreadable_settings_keep_the_last_plan():
+    """A broken config must not resurrect a pass the operator paused."""
+
+    async def run() -> None:
+        pass
+
+    state: dict = {"value": ("0 2 * * *", False)}
+
+    def settings():
+        if state["value"] == "boom":
+            raise RuntimeError("config unreadable")
+        return state["value"]
+
+    s = Scheduler(run, settings=settings, fallback="0 1 * * *")
+    assert s.plan.enabled is False and s.plan.next_fire_at is None
+
+    state["value"] = "boom"
+    plan = s.replan()
+    assert plan.enabled is False and plan.cron == "0 2 * * *", "the pause survived"
+    assert plan.next_fire_at is None and "unreadable" in (plan.error or "")
+
+
+async def test_times_are_local_not_utc():
+    """croniter reads a bare timestamp as UTC; the schedule must follow TZ."""
+    import os
+    import time as _time
+
+    from plex_auto_genres.scheduler import next_fire
+
+    previous = os.environ.get("TZ")
+    os.environ["TZ"] = "Europe/Paris"
+    _time.tzset()
+    try:
+        fire = next_fire("0 1 * * *")
+        assert fire is not None
+        assert _time.localtime(fire).tm_hour == 1, "01:00 means 01:00 where the server lives"
+    finally:
+        if previous is None:
+            del os.environ["TZ"]
+        else:
+            os.environ["TZ"] = previous
+        _time.tzset()
+
+
+async def test_a_paused_schedule_is_not_run_on_start():
+    fired: list[int] = []
+
+    async def run() -> None:
+        fired.append(1)
+
+    s = Scheduler(run, settings=lambda: ("0 1 * * *", False), fallback=None)
+    task = asyncio.create_task(s.run_forever(run_now=True))
+    await asyncio.sleep(0.05)
+    assert fired == [], "a paused schedule stays paused across a restart"
+    task.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await task
 
 
 async def test_the_loop_fires_when_due_and_wakes_on_replan(monkeypatch):

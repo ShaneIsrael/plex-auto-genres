@@ -3,6 +3,11 @@
   gap: 24px;
 }
 
+/* Deep links (/config#schedule) must clear the sticky status strip. */
+.page [id] {
+  scroll-margin-top: calc(var(--strip-h) + 16px);
+}
+
 .two-col {
   display: grid;
   grid-template-columns: 1fr;

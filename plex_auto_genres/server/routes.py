@@ -157,7 +157,10 @@ async def cron_preview(cron: str = Query(min_length=1, max_length=100)) -> schem
         validate_cron(cron)
     except ValueError as exc:
         return schemas.CronPreview(ok=False, error=str(exc))
-    return schemas.CronPreview(ok=True, next_fire_at=next_fires(cron, 3))
+    fires = next_fires(cron, 3)
+    if not fires:  # valid fields, no reachable date -- validate_cron catches this too
+        return schemas.CronPreview(ok=False, error=f"{cron!r} never matches a date.")
+    return schemas.CronPreview(ok=True, next_fire_at=fires)
 
 
 @router.post("/config/validate", response_model=schemas.ValidationResult)

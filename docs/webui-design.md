@@ -478,6 +478,47 @@ went over everything above. What it changed, so the decisions stay legible:
   owned by someone else, then `su-exec`s. `PUID=0` keeps v1's behaviour.
 - **`doctor` warns on a v1 layout** before anything is touched, so a dry look is possible.
 
+### Review pass 2 — done
+
+The upgrade path, the schedule and the UI rework went through the same treatment
+(six reading angles plus semgrep, bandit, ruff, mypy, shellcheck, hadolint, actionlint,
+gitleaks, pip-audit, pnpm audit). What it changed:
+
+- **Cron is local time.** `croniter` reads a bare timestamp as UTC, so `0 1 * * *` fired
+  at 01:00 UTC whatever `TZ` said — 03:00 in Paris in summer, and an hour off across
+  each DST change. Every call now hands it a timezone-aware `datetime`.
+- **The v1 gate is the file's shape, not its version number.** A v2 config whose
+  `version` key had been dropped by hand was "migrated": `migrate_v1` found no v1 blocks,
+  returned an empty document, and the upgrade wrote it over the user's libraries.
+  `is_v1_layout` now requires `general_settings`/`automation_settings` to be present.
+- **An expression that never matches a date** (`0 0 30 2 *`) passed `is_valid` and then
+  raised out of the scheduler loop, killing the task for good and 500-ing `/health`.
+  `validate_cron` refuses it at save time, `next_fire` returns `None` instead of raising,
+  and the plan resolution never raises at all.
+- **A paused schedule stays paused**: `--now`/`RUN_ON_START` consults the plan first, an
+  unreadable config keeps the last known plan instead of falling back to the env cron,
+  and `--now` without any schedule does nothing again (as its help always said).
+- **`plan` is a pure read.** It was resolving lazily, which meant config I/O on the event
+  loop from `/health`; `replan()` now resolves eagerly at save time.
+- **The upgrade is best-effort, never fatal.** Every write is guarded: a read-only
+  `/config` is reported and the in-memory migration carries on. Nothing is renamed that
+  could not be read, no `.imported` or `.v1` backup is ever overwritten, and the flag
+  that says "already imported" is only set once the import actually happened.
+- **Container ownership is targeted.** `chown -R` on a mounted volume followed symlinks
+  (busybox dereferences), which is an arbitrary-file chown primitive running as root;
+  it is now the two written directories, `-maxdepth 1 -type f`, only when a writability
+  test as the target user fails. A pinned `user:` no longer dies in sqlite: it explains
+  the one command to run. `PUID=00` no longer means "drop to root while claiming 1000".
+- **The healthcheck stopped putting the password in `argv`**: `/auth/status` is public
+  and answers exactly the question a liveness probe asks.
+- **UI**: the one-type defaults editor unmounted the other types, which silently dropped
+  a half-typed duplicate key *and* the save blocker that protects it — all three stay
+  mounted (hidden) and the type switcher marks the one with a problem. The portal menu
+  focuses its first item once it is actually visible (it was focusing a
+  `visibility: hidden` node, so the keyboard could not reach it), follows the trigger
+  every frame rather than on scroll events only, and anchors clear the sticky strip and
+  stop fighting the user's own scrolling.
+
 ### Next
 
 Decide where secrets should live if they are ever to be edited from the UI — the

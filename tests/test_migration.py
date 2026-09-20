@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 import logging
 
+from pathlib import Path
+
 from plex_auto_genres.config import load_config
 from plex_auto_genres.doctor import run_doctor
 from plex_auto_genres.migration import migrate_install
@@ -72,7 +74,6 @@ def test_a_v1_install_is_converted_backed_up_and_narrated(tmp_path, caplog):
     assert "Imported 3 v1 progress entries for 'Animes'" in text
     assert "Renamed plex-anime-successful.txt" in text
     assert "not needed by v2, left untouched" in text
-    assert "Skipping v1 run entry 'some other library'" in caplog.text or True  # config.py logs it
 
 
 def test_a_second_start_does_nothing(tmp_path, caplog):
@@ -159,3 +160,84 @@ def test_the_cli_migrates_before_running(tmp_path, monkeypatch, caplog):
     assert config.with_name("config.json.v1").is_file()
     assert (logs / "plex-anime-successful.txt.imported").is_file()
     assert "converted to v2" in caplog.text
+
+
+# -- guards ---------------------------------------------------------------------
+
+
+def test_a_v2_config_without_a_version_key_is_not_touched(tmp_path):
+    """The v1 gate is the *shape*: migrating a v2 file would empty it."""
+    config = tmp_path / "config.json"
+    config.write_text(json.dumps({
+        "defaults": {"anime": {"ignore": ["Kids"]}},
+        "libraries": [{"library": "Animes", "type": "anime", "useGenres": True}],
+    }))
+    before = config.read_text()
+    logs = tmp_path / "logs"
+    logs.mkdir()
+
+    with Store(logs / "state.db") as store:
+        report = migrate_install(config, logs, store)
+
+    assert not report.config_converted
+    assert config.read_text() == before
+    assert not config.with_name("config.json.v1").exists()
+    assert [r.library for r in load_config(config).libraries] == ["Animes"]
+
+
+def test_a_config_that_cannot_be_rewritten_is_reported_not_raised(tmp_path, caplog):
+    config, logs = v1_install(tmp_path)
+    config.parent.chmod(0o555)          # read-only directory
+    caplog.set_level(logging.ERROR, logger="plex_auto_genres.migration")
+    try:
+        with Store(logs / "state.db") as store:
+            report = migrate_install(config, logs, store)
+    finally:
+        config.parent.chmod(0o755)
+
+    assert not report.config_converted and report.failures
+    assert json.loads(config.read_text()) == V1, "the v1 file is intact"
+    assert "could not be rewritten" in caplog.text
+    # The in-memory migration still works, so the app keeps running.
+    assert [r.library for r in load_config(config).libraries] == ["Animes", "Anime Films"]
+
+
+def test_a_corrupt_progress_file_is_left_alone_and_stays_importable(tmp_path):
+    config, logs = v1_install(tmp_path)
+    (logs / "plex-anime-successful.txt").write_text("{{{ truncated by a killed container")
+
+    with Store(logs / "state.db") as store:
+        report = migrate_install(config, logs, store)
+        assert report.imported == {}
+        assert store.kv_get("legacy_imported::Animes") is None, "not flagged: it can be repaired"
+
+    assert (logs / "plex-anime-successful.txt").is_file(), "not renamed away"
+    assert any("not readable" in note for note in report.notes)
+
+
+def test_an_existing_imported_backup_is_never_clobbered(tmp_path):
+    config, logs = v1_install(tmp_path)
+    keep = logs / "plex-anime-successful.txt.imported"
+    keep.write_text("an older backup")
+
+    with Store(logs / "state.db") as store:
+        report = migrate_install(config, logs, store)
+
+    assert keep.read_text() == "an older backup"
+    assert any(p.name.startswith("plex-anime-successful.txt.imported.") for p in report.renamed)
+
+
+def test_the_legacy_logs_directory_falls_back_to_logs(tmp_path, monkeypatch):
+    from plex_auto_genres.migration import legacy_logs_dir
+
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "logs").mkdir()
+    (tmp_path / "logs" / "plex-anime-successful.txt").write_text("[]")
+    elsewhere = tmp_path / "var"
+    elsewhere.mkdir()
+
+    # A --db outside logs/ must still find v1's files.
+    assert legacy_logs_dir(elsewhere / "state.db") == Path("logs")
+    # ...and files next to the database win.
+    (elsewhere / "plex-anime-failures.txt").write_text("[]")
+    assert legacy_logs_dir(elsewhere / "state.db") == elsewhere

@@ -17,6 +17,7 @@ from fastapi.staticfiles import StaticFiles
 from .. import __version__
 from ..errors import PagError
 from ..jobs import JobOptions
+from ..migration import legacy_logs_dir, migrate_install
 from ..scheduler import Scheduler
 from .auth import AuthMiddleware, AuthRuntime, AuthSettings
 from .auth import router as auth_router
@@ -71,6 +72,12 @@ def create_app(
     async def lifespan(app: FastAPI):
         state = AppState(config_path, db_path, posters_dir=posters_dir)
         app.state.pag = state
+        # An embedder (or the demo) starting straight from create_app() gets
+        # the same v1 upgrade the CLI performs before it hands over.
+        try:
+            migrate_install(config_path, legacy_logs_dir(db_path), state.store)
+        except OSError as exc:
+            log.error("Could not complete the v1 upgrade (%s); continuing without it", exc)
         app.state.auth = AuthRuntime.build(auth_settings, state.store)
         if auth_settings.enabled:
             log.info("Authentication enabled (session cookie / bearer)")
@@ -85,9 +92,13 @@ def create_app(
             log.info("Scheduled pass queued %d job(s)", len(jobs))
 
         state.scheduler = Scheduler(scheduled, settings=state.schedule_settings, fallback=cron)
-        task = asyncio.create_task(state.scheduler.run_forever(run_now=run_on_start))
-        if cron:
-            log.info("Scheduler armed: %s (unless the config says otherwise)", cron)
+        # --now runs the pass only when there is a schedule to run it for,
+        # which is what the flag has always meant.
+        start_now = run_on_start and state.scheduler.plan.cron is not None
+        task = asyncio.create_task(state.scheduler.run_forever(run_now=start_now))
+        if state.scheduler.plan.cron:
+            log.info("Scheduler armed: %s (%s)",
+                     state.scheduler.plan.cron, state.scheduler.plan.source)
 
         try:
             yield

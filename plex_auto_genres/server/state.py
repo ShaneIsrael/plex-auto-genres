@@ -11,7 +11,7 @@ from pathlib import Path
 
 import httpx
 
-from ..config import AppConfig, etag_of, load_config, read_config_etag
+from ..config import AppConfig, CachedConfig, etag_of, read_config_etag
 from ..errors import ConfigError, PlexConnectionError
 from ..jobs import Job, JobManager
 from ..models import MediaItem
@@ -57,8 +57,8 @@ class AppState:
         #: Shared client for the poster proxy: one pool for the whole process.
         self.http = httpx.AsyncClient(timeout=15.0)
 
+        self._cache = CachedConfig(self.config_path)
         self._config: AppConfig | None = None
-        self._config_mtime: float | None = None
         self._config_etag: str | None = None
         self._plex = None
         self._link = PlexLink(reachable=False)
@@ -79,15 +79,14 @@ class AppState:
     def config(self) -> AppConfig:
         """The current config, re-read whenever the file changes on disk."""
         try:
-            mtime = self.config_path.stat().st_mtime
+            config = self._cache.load()
         except OSError as exc:
             raise ConfigError(f"No configuration file at {self.config_path}.") from exc
-        if self._config is None or mtime != self._config_mtime:
-            self._config = load_config(self.config_path)
-            self._config_mtime = mtime
+        if config is not self._config:
+            self._config = config
             self._config_etag = etag_of(self.config_path.read_text(encoding="utf-8"))
             log.info("Config loaded from %s", self.config_path)
-        return self._config
+        return config
 
     def config_etag(self) -> str | None:
         """Hash of the file on disk; ``None`` only if it cannot be read at all.
@@ -103,18 +102,20 @@ class AppState:
 
     def invalidate_config(self) -> None:
         """Force the next :meth:`config` call to re-read the file."""
+        self._cache = CachedConfig(self.config_path)
         self._config = None
-        self._config_mtime = None
         self._config_etag = None
         if self.scheduler is not None:
             self.scheduler.replan()
 
     def schedule_settings(self) -> tuple[str | None, bool] | None:
-        """The config's schedule block for the scheduler; ``None`` if unreadable."""
-        try:
-            schedule = self.config().schedule
-        except ConfigError:
-            return None
+        """The config's schedule block, for the scheduler.
+
+        Raises :class:`ConfigError` when the file cannot be read: that is not
+        the same as "no schedule block", and the scheduler must keep the plan
+        it has rather than resurrect a pass the operator paused.
+        """
+        schedule = self.config().schedule
         return schedule.cron, schedule.enabled
 
     # -- plex -------------------------------------------------------------

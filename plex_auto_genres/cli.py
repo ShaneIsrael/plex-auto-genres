@@ -16,6 +16,7 @@ from . import __version__
 from .config import (
     AppConfig,
     CONFIG_VERSION,
+    CachedConfig,
     LibraryRun,
     config_json_schema,
     load_config,
@@ -23,14 +24,14 @@ from .config import (
 )
 from .doctor import DoctorReport, run_doctor
 from .errors import ConfigError, PagError, PlexConnectionError
-from .migration import migrate_install
+from .migration import legacy_logs_dir, migrate_install
 from .models import MediaType, RunReport
 from .plexsvc import client as plex_client
 from .plexsvc.writer import undo_run
 from .providers import LookupRequest, build_providers
 from .reporting import ProgressBar, Style, print_report
 from .runner import ACTIONS, run_libraries
-from .scheduler import Scheduler, validate_cron
+from .scheduler import SchedulePlan, Scheduler, validate_cron
 from .store import Store, run_status
 
 log = logging.getLogger("plex_auto_genres")
@@ -499,17 +500,31 @@ async def cmd_schedule(args, config_path: str, db_path: str, style: Style) -> in
         return 2
 
     print(f"Scheduler started. Fallback cron: {style.cyan(args.cron)}")
-    announced: list[float | None] = [None]
+    # The loop re-plans every minute; say each state once.
+    announced: SchedulePlan | None = None
 
-    def announce(fire_at: float) -> None:
-        if announced[0] == fire_at:
-            return  # the loop re-plans every minute; only say it once
-        announced[0] = fire_at
-        when = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(fire_at))
-        print(style.dim(f"Next run at {when} (in {int(fire_at - time.time())}s)"))
+    def announce(plan: SchedulePlan) -> None:
+        nonlocal announced
+        if announced is not None and (plan.cron, plan.enabled, plan.next_fire_at) == (
+            announced.cron, announced.enabled, announced.next_fire_at
+        ):
+            return
+        announced = plan
+        if plan.next_fire_at is not None:
+            when = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(plan.next_fire_at))
+            print(style.dim(f"Next run at {when} (in {int(plan.next_fire_at - time.time())}s)"))
+        elif plan.cron and not plan.enabled:
+            print(style.yellow(f"Schedule paused ({plan.cron}); nothing runs until it is resumed."))
+        elif plan.cron:
+            print(style.red(f"Cron {plan.cron!r} never fires; nothing will run."))
+        else:
+            print(style.yellow("No schedule configured; nothing will run automatically."))
+
+    cache = CachedConfig(config_path)
 
     def settings() -> tuple[str | None, bool] | None:
-        schedule = load_config(config_path).schedule
+        """The config's schedule block. Raising means "cannot read it right now"."""
+        schedule = cache.load().schedule
         return schedule.cron, schedule.enabled
 
     async def one_pass() -> None:
@@ -526,7 +541,7 @@ async def cmd_schedule(args, config_path: str, db_path: str, style: Style) -> in
         except PagError as exc:
             print(style.red(f"Run failed: {exc}"))
 
-    scheduler = Scheduler(one_pass, settings=settings, fallback=args.cron, on_schedule=announce)
+    scheduler = Scheduler(one_pass, settings=settings, fallback=args.cron, on_plan=announce)
     try:
         await scheduler.run_forever(run_now=args.now)
     except asyncio.CancelledError:
@@ -575,8 +590,12 @@ def cmd_serve(args, style: Style) -> int:
 def _dispatch(args, store: Store, style: Style) -> int:
     """Run the command that needs the state database open."""
     if args.command in ("run", "serve", "schedule"):
-        # A v1 install is brought up to date here, once, and says so.
-        migrate_install(args.config, Path(args.db).parent, store)
+        # A v1 install is brought up to date here, once, and says so. Never
+        # fatal: the config is still migrated in memory when it is loaded.
+        try:
+            migrate_install(args.config, legacy_logs_dir(args.db), store)
+        except OSError as exc:
+            log.error("Could not complete the v1 upgrade (%s); continuing without it", exc)
     if args.command == "doctor":
         return cmd_doctor(args.config, store, style, args.json, offline=args.offline)
     if args.command in ("bind", "unbind", "bindings"):

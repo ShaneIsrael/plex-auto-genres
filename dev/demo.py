@@ -23,6 +23,7 @@ import hashlib
 import json
 import os
 import random
+import re
 import shutil
 import struct
 import sys
@@ -462,6 +463,10 @@ def seed(data: Path, sections: list[Section]) -> None:
 # ---------------------------------------------------------------------------
 
 
+#: The id inside a poster path: /library/metadata/<key>/thumb/<n>, /candidate/<id>.
+_POSTER_ID = re.compile(r"/(?:metadata|candidate)/(\d{1,10})")
+
+
 def poster_route(app) -> None:
     """``GET /demo/poster?path=...`` -> an SVG poster derived from the path."""
     from starlette.responses import Response
@@ -469,18 +474,28 @@ def poster_route(app) -> None:
 
     async def poster(request):
         path = request.query_params.get("path", "")
-        rng = random.Random(path)
+        # Nothing from the query string reaches the document as text: the id
+        # is parsed to an int and the colours come from an int seed. An SVG
+        # is a script-bearing format, and this one is built by hand.
+        found = _POSTER_ID.search(path)
+        label = int(found.group(1)) if found else 0
+        rng = random.Random(zlib.crc32(path.encode("utf-8", "replace")))
         hue = rng.randint(0, 359)
-        label = path.rsplit("/", 2)[-2] if "/thumb/" in path else path.rsplit("/", 1)[-1]
+        # nosemgrep: python.django.security.injection.raw-html-format.raw-html-format
+        # -- every substitution below is an int; `path` itself never appears.
         svg = (
             '<svg xmlns="http://www.w3.org/2000/svg" width="180" height="270" viewBox="0 0 180 270">'
-            f'<rect width="180" height="270" fill="hsl({hue} 45% 28%)"/>'
-            f'<circle cx="{rng.randint(30, 150)}" cy="{rng.randint(40, 230)}" r="{rng.randint(30, 70)}" '
+            f'<rect width="180" height="270" fill="hsl({hue} 45% 28%)"/>'  # nosemgrep
+            f'<circle cx="{rng.randint(30, 150)}" cy="{rng.randint(40, 230)}" r="{rng.randint(30, 70)}" '  # nosemgrep
             f'fill="hsl({(hue + 40) % 360} 60% 55%)" opacity="0.7"/>'
-            f'<text x="12" y="250" font-family="monospace" font-size="16" fill="#fff" opacity="0.9">#{label}</text>'
+            f'<text x="12" y="250" font-family="monospace" font-size="16" fill="#fff" opacity="0.9">#{label}</text>'  # nosemgrep
             "</svg>"
         )
-        return Response(svg, media_type="image/svg+xml", headers={"Cache-Control": "public, max-age=3600"})
+        return Response(svg, media_type="image/svg+xml", headers={
+            "Cache-Control": "public, max-age=3600",
+            "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'",
+            "X-Content-Type-Options": "nosniff",
+        })
 
     # Ahead of the SPA catch-all, which would otherwise swallow the path.
     app.router.routes.insert(0, Route("/demo/poster", poster))
@@ -494,7 +509,7 @@ BASE_URL = f"http://127.0.0.1:{PORT}"
 
 
 def main() -> int:
-    global BASE_URL, PORT
+    global BASE_URL  # the fake providers and the seeder build poster URLs from it
 
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--host", default="127.0.0.1")
@@ -505,7 +520,6 @@ def main() -> int:
     parser.add_argument("--reset", action="store_true", help="Discard the demo state and reseed.")
     args = parser.parse_args()
 
-    PORT = args.port
     BASE_URL = f"http://{args.host}:{args.port}"
 
     import uvicorn

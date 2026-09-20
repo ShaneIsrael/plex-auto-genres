@@ -11,7 +11,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Literal
 
-from .config import CONFIG_VERSION, AppConfig, load_config
+from .config import AppConfig, is_v1_layout, load_config
 from .errors import ConfigError
 from .models import MediaType
 from .store import Store
@@ -73,7 +73,7 @@ def run_doctor(config_path: str, store: Store, *, check_taxonomy: bool = True) -
         "config", "ok", "Config parses",
         f"{len(config.libraries)} librar{'y' if len(config.libraries) == 1 else 'ies'}",
     ))
-    if _is_v1_layout(config_path):
+    if _config_is_v1(config_path):
         checks.append(Check(
             "config-layout", "warn", "Config is in the v1 layout",
             "It is converted on disk at the next run/serve/schedule; the original "
@@ -123,12 +123,12 @@ def run_doctor(config_path: str, store: Store, *, check_taxonomy: bool = True) -
     return DoctorReport(checks, config)
 
 
-def _is_v1_layout(config_path: str) -> bool:
+def _config_is_v1(config_path: str) -> bool:
+    """Read the file once more, only to answer "is this still a v1 layout?"."""
     try:
-        raw = json.loads(Path(config_path).read_text(encoding="utf-8"))
+        return is_v1_layout(json.loads(Path(config_path).read_text(encoding="utf-8")))
     except (OSError, ValueError):
         return False
-    return isinstance(raw, dict) and int(raw.get("version", 1)) < CONFIG_VERSION
 
 
 def _taxonomy_check(config: AppConfig, store: Store) -> Check:

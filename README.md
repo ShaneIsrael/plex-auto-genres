@@ -88,6 +88,8 @@ plex-auto-genres serve --host 0.0.0.0           # reachable from the LAN
 | `PAG_WEB_SECURE_COOKIE` | auto | Force the cookie's `Secure` flag (behind an https proxy) |
 | `PAG_WEB_TRUSTED_PROXIES` | — | Comma-separated proxy addresses whose `X-Forwarded-For` is believed for the login rate limit |
 | `CRON_SCHEDULE` | `0 1 * * *` | Fallback schedule. The `schedule` block in `config.json` — editable on the Config page, where it can also be paused — takes precedence |
+| `PUID` / `PGID` | `1000` | The user the app runs as; the container hands `/config` and `/logs` to it on start |
+| `TZ` | `UTC` | The timezone cron expressions are read in: `0 1 * * *` means 01:00 local |
 
 The API is documented at `/api/docs` once signed in.
 
@@ -237,9 +239,17 @@ What that means, step by step:
   `PLEX_COLLECTION_PREFIX`). Everything new is optional: `PAG_WEB_PASSWORD` turns the web
   UI on, `CRON_SCHEDULE` / `TZ` / `RUN_ON_START` tune the nightly pass, `PUID` / `PGID`
   pick the user the app runs as.
-- **Ownership**: the v1 image ran as root; this one runs as `PUID:PGID` (default
-  `1000:1000`) and, on start, hands the mounted `/config`, `/logs` and `/posters` to that
-  user. `PUID=0` keeps everything as root.
+- **Ownership**: the v1 image ran as root; this one runs the app as `PUID:PGID`
+  (default `1000:1000`). PID 1 starts as root only to hand `/config` and `/logs` to that
+  user — the two directories the app writes, non-recursively and never through a
+  symlink — and then drops privileges for everything, the healthcheck included.
+  `PUID=0` keeps everything as root, as v1 did. If you pin the container to a user
+  (`user:` in compose, `runAsUser` in Kubernetes) it cannot do that, so it tells you
+  what to run once instead:
+
+  ```bash
+  docker compose run --rm --user 0 plex-auto-genres fix-permissions
+  ```
 - **Mode**: with no `PAG_WEB_PASSWORD` the container runs headless on its schedule,
   exactly as v1 did. Set the password (or `PAG_MODE=serve` with `PAG_WEB_INSECURE=1`) to
   get the console on port 8095.

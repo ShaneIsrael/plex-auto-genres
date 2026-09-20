@@ -290,10 +290,12 @@ class ScheduleSettings(BaseModel):
         value = (value or "").strip()
         if not value:
             return None
-        from croniter import croniter
+        from .scheduler import validate_cron
 
-        if not croniter.is_valid(value):
-            raise ValueError(f"not a valid cron expression: {value!r}")
+        try:
+            validate_cron(value)
+        except ValueError as exc:
+            raise ValueError(str(exc)) from exc
         return value
 
 
@@ -377,6 +379,21 @@ def _providers_from_env() -> ProviderSettings:
         concurrency=int(os.getenv("PAG_CONCURRENCY", "4")),
         max_attempts=int(os.getenv("PAG_MAX_ATTEMPTS", "3")),
     )
+
+
+#: The two blocks only a v1 file has. A file without them is not v1, whatever
+#: its ``version`` says -- and must never be run through :func:`migrate_v1`,
+#: which would return an empty document.
+V1_MARKERS = ("general_settings", "automation_settings")
+
+
+def is_v1_layout(raw: Any) -> bool:
+    """Whether a parsed config is in the v1 layout and needs migrating."""
+    if not isinstance(raw, dict):
+        return False
+    if int(raw.get("version", 1) or 1) >= CONFIG_VERSION:
+        return False
+    return any(key in raw for key in V1_MARKERS)
 
 
 def migrate_v1(raw: dict[str, Any]) -> dict[str, Any]:
@@ -478,7 +495,7 @@ def load_config(
         raise ConfigError(f"{path} must contain a JSON object at the top level.")
     raw = strip_comments(raw)
 
-    if int(raw.get("version", 1)) < CONFIG_VERSION:
+    if is_v1_layout(raw):
         raw = migrate_v1(raw)
 
     if use_env:
@@ -492,6 +509,28 @@ def load_config(
         return AppConfig.model_validate(raw)
     except ValidationError as exc:
         raise ConfigError(_format_validation_error(path, exc)) from exc
+
+
+class CachedConfig:
+    """A config file, re-parsed only when it changes on disk.
+
+    :meth:`load` raises ``OSError`` when the file cannot be stat'd and
+    :class:`ConfigError` when it does not parse -- callers that poll (the
+    scheduler) need to tell "unreadable right now" from "says nothing".
+    """
+
+    def __init__(self, path: str | Path) -> None:
+        self.path = Path(path)
+        self._mtime: float | None = None
+        self._config: AppConfig | None = None
+
+    def load(self) -> AppConfig:
+        """The config, from cache when the file has not changed since."""
+        mtime = self.path.stat().st_mtime
+        if self._config is None or mtime != self._mtime:
+            self._config = load_config(self.path)
+            self._mtime = mtime
+        return self._config
 
 
 def _format_validation_error(path: Path, exc: ValidationError) -> str:
@@ -615,7 +654,9 @@ def read_config_etag(path: str | Path) -> str | None:
     return etag_of(path.read_text(encoding="utf-8"))
 
 
-def write_config(path: str | Path, document: dict[str, Any]) -> tuple[str, Path | None]:
+def write_config(
+    path: str | Path, document: dict[str, Any], *, backup: bool = True
+) -> tuple[str, Path | None]:
     """Replace the config file atomically. Returns ``(etag, backup_path)``.
 
     The previous file is copied to ``<name>.bak`` first, the new text goes to a
@@ -623,6 +664,10 @@ def write_config(path: str | Path, document: dict[str, Any]) -> tuple[str, Path 
     original, so a crash mid-write cannot leave a truncated config. A v1 file
     comes out of this in the v2 layout (its keys are not in the new document),
     with the v1 original preserved in the backup.
+
+    ``backup=False`` skips the ``.bak`` copy, for a caller that has already
+    kept the previous file under a name of its own (the v1 upgrade does) and
+    would otherwise destroy the last backup of an unrelated edit.
     """
     path = Path(path)
     if path.is_symlink():
@@ -638,19 +683,22 @@ def write_config(path: str | Path, document: dict[str, Any]) -> tuple[str, Path 
     merged = merge_preserving_comments(old_raw, body) if isinstance(old_raw, dict) else body
     text = json.dumps(merged, indent=4, ensure_ascii=False) + "\n"
 
-    backup: Path | None = None
-    if path.is_file():
-        backup = path.with_name(path.name + ".bak")
-        shutil.copyfile(path, backup)
+    backup_path: Path | None = None
+    if backup and path.is_file():
+        backup_path = path.with_name(path.name + ".bak")
+        shutil.copyfile(path, backup_path)
+        shutil.copymode(path, backup_path)
 
     path.parent.mkdir(parents=True, exist_ok=True)
-    # mkstemp creates 0600 files; keep the original's mode (a hand-edited
-    # 0644 on a bind mount stays readable by the host user).
-    mode = path.stat().st_mode & 0o777 if path.exists() else 0o644
+    # mkstemp creates 0600 files; keep the original's mode, so a hand-edited
+    # 0644 on a bind mount stays readable by the host user. A file we are
+    # creating keeps mkstemp's own 0600 rather than a guess at the umask.
+    mode = path.stat().st_mode & 0o777 if path.exists() else None
     fd, tmp_name = tempfile.mkstemp(dir=path.parent, prefix=f".{path.stem}-", suffix=".tmp")
     tmp = Path(tmp_name)
     try:
-        os.fchmod(fd, mode)
+        if mode is not None:
+            os.fchmod(fd, mode)
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
             handle.write(text)
             handle.flush()
@@ -660,4 +708,4 @@ def write_config(path: str | Path, document: dict[str, Any]) -> tuple[str, Path 
         with contextlib.suppress(OSError):
             tmp.unlink()
         raise
-    return etag_of(text), backup
+    return etag_of(text), backup_path

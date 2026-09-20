@@ -34,10 +34,17 @@ services:
       TZ: "Europe/Paris"
       # --- Tuning
       PAG_CONCURRENCY: "4"
-    # The app runs as PUID:PGID (default 1000:1000). On the first start the
-    # container hands the mounted directories to that user, so volumes written
-    # by the v1 image (which ran as root) keep working. PUID=0 keeps root.
-    # environment: { PUID: "1000", PGID: "1000" }
+      # --- Ownership of the mounted volumes (see the note below)
+      PUID: "1000"
+      PGID: "1000"
+# The app runs as PUID:PGID — set them in the environment block above; the
+# defaults are 1000:1000. On the first start the container hands the mounted
+# /config and /logs to that user, so volumes written by the v1 image (which ran
+# as root) keep working. PUID=0 keeps everything as root, as v1 did.
+#
+# Adding a `user:` key here instead pins the container to that uid and disables
+# the hand-over; if the volumes are not already owned by it, run once:
+#     docker compose run --rm --user 0 plex-auto-genres fix-permissions
 
 # Behind a reverse proxy that terminates TLS, set PAG_WEB_SECURE_COOKIE=1 and
 # forward X-Forwarded-Proto so the session cookie is marked Secure.

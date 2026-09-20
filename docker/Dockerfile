@@ -73,16 +73,26 @@ COPY --from=ui /ui/dist /app/static
 COPY docker/entrypoint.sh /entrypoint.sh
 COPY docker/healthcheck.sh /healthcheck.sh
 
-# The app runs as PUID:PGID (default 1000:1000); the entrypoint drops to it
-# after fixing the ownership of volumes a v1 container (root) left behind.
+# The image deliberately declares no USER: PID 1 starts as root, hands the
+# mounted /config and /logs to PUID:PGID (v1 ran as root, so an upgraded
+# install's volumes belong to root) and immediately su-execs the app as that
+# user -- the pattern the *arr images use, and the only way an upgrade works
+# by pulling a tag. Run it with `user:` / runAsUser to skip the root phase;
+# the entrypoint then checks the volumes and tells you what to run once.
+# nosemgrep: dockerfile.security.missing-user.missing-user-entrypoint
 RUN adduser -S -u 1000 -h /home/pag pag \
  && chmod +x /entrypoint.sh /healthcheck.sh \
  && mkdir -p /config /logs /posters \
- && chown -R 1000 /config /logs /posters
+ && chown -R 1000:1000 /config /logs /posters
 
 WORKDIR /
 EXPOSE 8095
 
 HEALTHCHECK --interval=1m --timeout=15s --start-period=30s --retries=3 CMD ["/healthcheck.sh"]
 
+# No USER on purpose: PID 1 starts as root to hand the mounted volumes to
+# PUID:PGID (v1 ran as root, so an upgraded install's files belong to root)
+# and su-execs the app as that user straight away -- see the entrypoint. Pin
+# the container with `user:` / runAsUser to skip the root phase entirely.
+# nosemgrep: dockerfile.security.missing-user-entrypoint.missing-user-entrypoint
 ENTRYPOINT ["/entrypoint.sh"]
