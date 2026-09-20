@@ -440,7 +440,9 @@ def test_cancel_a_running_job_and_refuse_a_finished_one(tmp_path, config_file, m
 
 def test_sse_stream_ends_with_an_end_event(tmp_path, config_file, monkeypatch):
     import asyncio as _a
+    import time as _time
 
+    from plex_auto_genres import pipeline as pipeline_module
     from plex_auto_genres.models import ProviderResult
     from plex_auto_genres.providers.jikan import JikanProvider
 
@@ -449,7 +451,19 @@ def test_sse_stream_ends_with_an_end_event(tmp_path, config_file, monkeypatch):
         return ProviderResult(provider="jikan", provider_id="1", title=request.title,
                               genres=["Action"])
 
+    # The job starts as soon as it is queued, so hold it inside the library
+    # read -- which runs in a worker thread, before `begin` is emitted -- until
+    # the client has had time to open the stream. Without this the subscriber
+    # races the first action and (correctly, but untestably) sees only the
+    # snapshot that exists to close exactly that gap.
+    real_iter_library = pipeline_module.plex_client.iter_library
+
+    def unhurried(server, library, **kwargs):
+        _time.sleep(0.3)
+        return real_iter_library(server, library, **kwargs)
+
     monkeypatch.setattr(JikanProvider, "resolve", slow_resolve)
+    monkeypatch.setattr(pipeline_module.plex_client, "iter_library", unhurried)
     app, _ = _job_app(tmp_path, config_file, monkeypatch)
     if True:
         with TestClient(app) as c:
@@ -468,6 +482,7 @@ def test_sse_stream_ends_with_an_end_event(tmp_path, config_file, monkeypatch):
             names = [e for e, _ in events]
             assert names[0] == "snapshot" and names[-1] == "end"
             assert "begin" in names and "item" in names and "report" in names
+            assert names.index("begin") < names.index("item") < names.index("report")
             assert events[-1][1]["status"] == "done"
 
 
