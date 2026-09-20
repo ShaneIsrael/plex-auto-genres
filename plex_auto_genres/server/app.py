@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import os
 from contextlib import asynccontextmanager
+from http import HTTPStatus
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
@@ -97,11 +99,10 @@ def create_app(
         finally:
             if task is not None:
                 task.cancel()
-                try:
+                with contextlib.suppress(asyncio.CancelledError, Exception):
                     await task
-                except (asyncio.CancelledError, Exception):
-                    pass
             await state.jobs.stop()
+            await state.aclose()
             state.close()
 
     app = FastAPI(
@@ -136,7 +137,10 @@ def create_app(
 
 
 def _reason(status: int) -> str:
-    return {404: "Not Found", 503: "Service Unavailable", 400: "Bad Request"}.get(status, "Error")
+    try:
+        return HTTPStatus(status).phrase
+    except ValueError:
+        return "Error"
 
 
 def _mount_ui(app: FastAPI, static: Path | None) -> None:
@@ -166,12 +170,18 @@ def _mount_ui(app: FastAPI, static: Path | None) -> None:
 
     index = static / "index.html"
 
+    def static_file(path: str) -> Path | None:
+        """A real file inside the static dir, or None: everything else is a route."""
+        candidate = (static / path).resolve()
+        if path and candidate.is_file() and static.resolve() in candidate.parents:
+            return candidate
+        return None
+
     @app.get("/{path:path}", include_in_schema=False)
     async def _spa(path: str) -> FileResponse:
         if path.startswith("api/"):
             raise HTTPException(status_code=404, detail="No such endpoint.")
-        candidate = (static / path).resolve()
-        # Only serve files inside the static dir; everything else is a route.
-        if path and candidate.is_file() and static.resolve() in candidate.parents:
+        candidate = await asyncio.to_thread(static_file, path)  # stat() off the loop
+        if candidate is not None:
             return FileResponse(candidate)
         return FileResponse(index, headers={"Cache-Control": "no-cache"})

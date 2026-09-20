@@ -7,8 +7,9 @@ import { RunMenu } from "../components/RunMenu";
 import { Empty, ErrorBlock } from "../components/Empty";
 import { PageHeader } from "../components/Panel";
 import { Skeleton } from "../components/Skeleton";
-import { RUN_STATUS_LABEL, StatusDot, toneForRun } from "../components/StatusDot";
+import { StatusDot, toneForRun } from "../components/StatusDot";
 import { int, relTime } from "../lib/format";
+import { reveal } from "../lib/reveal";
 
 export default function Libraries() {
   const libraries = useLibraries();
@@ -52,7 +53,7 @@ function LibraryCard({ lib, index, active }: { lib: LibraryView; index: number; 
   const coverage = total ? Math.min(100, Math.round((ok / total) * 100)) : null;
 
   return (
-    <article className={`card reveal ${!lib.configured ? "card--ghost" : ""} ${lib.enabled === false ? "card--off" : ""}`} style={{ "--i": index } as React.CSSProperties}>
+    <article {...reveal(index, `card ${!lib.configured ? "card--ghost" : ""} ${lib.enabled === false ? "card--off" : ""}`)}>
       <header className="card__head">
         <h2 className="card__title">
           {lib.configured ? <Link to={`/libraries/${encodeURIComponent(lib.name)}`} className="card__titlelink">{lib.name}</Link> : lib.name}
@@ -103,7 +104,7 @@ function LibraryCard({ lib, index, active }: { lib: LibraryView; index: number; 
                 </Link>
               ) : lib.last_run ? (
                 <Link to={`/runs/${lib.last_run.run_id}`} className="card__lastrun">
-                  <StatusDot tone={toneForRun(lib.last_run.status)} label={`${RUN_STATUS_LABEL[lib.last_run.status]} · ${relTime(lib.last_run.started_at)}`} />
+                  <StatusDot tone={toneForRun(lib.last_run.status)} label={`${lib.last_run.status} · ${relTime(lib.last_run.started_at)}`} />
                 </Link>
               ) : (
                 <span className="faint mono">never run</span>

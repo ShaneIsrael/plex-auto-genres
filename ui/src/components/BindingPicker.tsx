@@ -25,6 +25,10 @@ const MANUAL: Record<MediaType, BindingProvider[]> = {
 /**
  * Pick the provider record an item should resolve to. Search first (ranked
  * candidates with posters), or type an id straight in.
+ *
+ * The provider choices are seeded from `type` once, at mount: render it with
+ * `key={type}` so a library whose type arrives after the first paint gets a
+ * fresh picker instead of one stuck on the placeholder type.
  */
 export function BindingPicker({
   library,
@@ -122,7 +126,16 @@ export function BindingPicker({
                       {c.synopsis && <p className="cand__synopsis">{c.synopsis}</p>}
                       {c.genres.length > 0 && <p className="chips">{c.genres.slice(0, 6).map((g) => <span key={g} className="chip chip--quiet">{g}</span>)}</p>}
                     </div>
-                    <button type="button" className="button button--sm" disabled={create.isPending} onClick={() => bind(BIND_AS[c.provider] ?? "mal", c.provider_id, `picked from ${c.provider} search`)}>
+                    <button
+                      type="button"
+                      className="button button--sm"
+                      disabled={create.isPending || !BIND_AS[c.provider]}
+                      title={BIND_AS[c.provider] ? undefined : `Results from ${c.provider} cannot be bound yet`}
+                      onClick={() => {
+                        const scheme = BIND_AS[c.provider];
+                        if (scheme) void bind(scheme, c.provider_id, `picked from ${c.provider} search`);
+                      }}
+                    >
                       <Link2 size={12} aria-hidden="true" /> Use this
                     </button>
                   </li>

@@ -103,6 +103,8 @@ export interface RunReport {
   duration_s: number;
   failures: [string, string][];
   cancelled: boolean;
+  /** Set when the action as a whole could not proceed (Plex down, no sortedPrefix, ...). */
+  error: string | null;
 }
 
 export interface RunView {

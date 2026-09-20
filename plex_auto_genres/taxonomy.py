@@ -15,6 +15,10 @@ from .store import Store
 GENRES_URL = "https://api.jikan.moe/v4/genres/anime"
 CACHE_KEY = "mal_taxonomy_v1"
 CACHE_TTL_S = 30 * 86400.0
+#: After a failed fetch, do not retry for this long: doctor runs from health
+#: probes and page loads, and each retry is a full network timeout.
+UNAVAILABLE_KEY = "mal_taxonomy_unavailable"
+UNAVAILABLE_TTL_S = 15 * 60.0
 
 #: Old MAL name -> the name that replaced it, or ``None`` when it was retired
 #: without a direct successor.
@@ -43,6 +47,8 @@ def fetch_live_genres(store: Store, *, timeout: float = 20.0) -> list[str] | Non
             return json.loads(cached)
         except json.JSONDecodeError:
             pass
+    if store.kv_get(UNAVAILABLE_KEY):
+        return None
 
     import httpx
 
@@ -53,6 +59,7 @@ def fetch_live_genres(store: Store, *, timeout: float = 20.0) -> list[str] | Non
             entry["name"] for entry in response.json().get("data", []) if entry.get("name")
         )
     except Exception:
+        store.kv_set(UNAVAILABLE_KEY, "1", UNAVAILABLE_TTL_S)
         return None
 
     store.kv_set(CACHE_KEY, json.dumps(names), CACHE_TTL_S)

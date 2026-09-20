@@ -207,3 +207,20 @@ def test_blank_library_names_are_rejected():
 def test_library_names_are_stripped():
     config = AppConfig.model_validate({"version": 2, "libraries": [{"library": "  Animes ", "type": "anime"}]})
     assert config.libraries[0].library == "Animes"
+
+
+def test_migration_skips_malformed_v1_entries():
+    """v1 ran one subprocess per entry, so a bad entry only failed itself."""
+    raw = {"automation_settings": {"run": [
+        {"library": "A", "type": "anime"},
+        {"library": "Doc", "type": "some other type"},   # the v1 example ships one of these
+        {"type": "anime"},
+    ]}}
+    assert [r["library"] for r in migrate_v1(raw)["libraries"]] == ["A"]
+
+
+def test_missing_config_is_fine_when_told_so(tmp_path, monkeypatch):
+    monkeypatch.setenv("PLEX_BASE_URL", "http://plex:32400")
+    monkeypatch.setenv("PLEX_TOKEN", "t")
+    config = load_config(tmp_path / "absent.json", missing_ok=True)
+    assert config.libraries == [] and config.plex.base_url == "http://plex:32400"

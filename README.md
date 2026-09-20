@@ -28,14 +28,17 @@ as Plex genre tags or as collections.
 
 ### Docker (recommended)
 
+The image is published by CI as `ghcr.io/<github-user>/plex-auto-genres`; `OWNER`
+below stands for that account.
+
 ```bash
 mkdir -p plex-auto-genres/{config,logs} && cd plex-auto-genres
-curl -o config/config.json https://raw.githubusercontent.com/Dim145/plex-auto-genres/master/config/config.json.example
+cp /path/to/checkout/config/config.json.example config/config.json
 $EDITOR config/config.json     # library names must match Plex exactly
 ```
 
 ```bash
-docker run --rm -v "$PWD/config:/config" -v "$PWD/logs:/logs" -e PLEX_BASE_URL="http://192.168.1.10:32400" -e PLEX_TOKEN="xxxx" ghcr.io/dim145/plex-auto-genres doctor
+docker run --rm -v "$PWD/config:/config" -v "$PWD/logs:/logs" -e PLEX_BASE_URL="http://192.168.1.10:32400" -e PLEX_TOKEN="xxxx" ghcr.io/OWNER/plex-auto-genres doctor
 ```
 
 Once `doctor` is happy, use the [compose file](docker/docker-compose.yml):
@@ -62,9 +65,10 @@ plex-auto-genres doctor
 `plex-auto-genres serve` hosts the console on http://127.0.0.1:8095 — overview, run
 history with the last-forty-runs tape, libraries with coverage, manual bindings, and the
 config with the doctor checks. From there you can **start a run** for one library or all
-of them (normal, dry, or forced), **watch it live**, **cancel** it, and **undo** any
-finished run. The Docker image runs the console by default and keeps the nightly
-scheduler in the same process; scheduled passes show up as jobs like any other.
+of them (normal, dry, or forced), **watch it live**, **cancel** it, and **undo** a
+finished tag, rating or sort run. The Docker image runs the console whenever a login is
+configured and keeps the nightly scheduler in the same process; scheduled passes show up
+as jobs like any other.
 
 Jobs run one at a time, in the order they were queued: the provider rate limits live
 inside each run, so two at once would trip 429s and gain nothing.
@@ -76,12 +80,13 @@ plex-auto-genres serve --host 0.0.0.0           # reachable from the LAN
 
 | Env (container) | Default | Purpose |
 |---|---|---|
-| `PAG_MODE` | `serve` | `serve` = UI + scheduler; `schedule` = headless, as v1 |
+| `PAG_MODE` | auto | `serve` = UI + scheduler; `schedule` = headless, as v1. Unset: `serve` when `PAG_WEB_PASSWORD` or `PAG_WEB_INSECURE` is set, else `schedule` |
 | `PAG_WEB_PORT` | `8095` | Port the UI listens on |
 | `PAG_WEB_PASSWORD` | — | Login password. Required unless the bind is loopback or `PAG_WEB_INSECURE=1` |
 | `PAG_WEB_INSECURE` | — | `1` to run without a login on a network you trust |
 | `PAG_WEB_SESSION_DAYS` | `30` | Session lifetime |
 | `PAG_WEB_SECURE_COOKIE` | auto | Force the cookie's `Secure` flag (behind an https proxy) |
+| `PAG_WEB_TRUSTED_PROXIES` | — | Comma-separated proxy addresses whose `X-Forwarded-For` is believed for the login rate limit |
 
 The API is documented at `/api/docs` once signed in.
 
@@ -110,9 +115,12 @@ curl -H "Authorization: Bearer $PAG_WEB_PASSWORD" http://127.0.0.1:8095/api/v1/h
 
 `serve` **refuses to listen on anything but loopback without a password**; on a private
 network you trust, `PAG_WEB_INSECURE=1` overrides that, loudly. Failed logins are limited
-to five a minute per client. Behind a TLS-terminating reverse proxy, set
-`PAG_WEB_SECURE_COOKIE=1` and forward `X-Forwarded-Proto` so the cookie is marked
-`Secure`. There are no user accounts, on purpose; there is one operator.
+to five a minute per client and fifty a minute overall. The client is the connecting
+peer: `X-Forwarded-For` is only believed when the peer is listed in
+`PAG_WEB_TRUSTED_PROXIES`, since anyone can send that header. Behind a TLS-terminating
+reverse proxy, set `PAG_WEB_SECURE_COOKIE=1`, forward `X-Forwarded-Proto` so the cookie
+is marked `Secure`, and list the proxy in `PAG_WEB_TRUSTED_PROXIES`. There are no user
+accounts, on purpose; there is one operator.
 
 Everything the UI does is plain HTTP — `POST /api/v1/libraries/{name}/run`,
 `GET /api/v1/jobs/{id}/events` (server-sent events), `POST /api/v1/jobs/{id}/cancel`,
@@ -199,8 +207,13 @@ progress file.
 ## Upgrading from v1
 
 Nothing is required: a v1 `config.json` is migrated in memory at load, the old
-`logs/plex-*-*.txt` progress files are imported into the database on first run, and
-`python plex-auto-genres.py --library X --type anime` still works.
+`logs/plex-*-*.txt` progress files are imported into the database on first run (and
+adopted under each item's Plex GUID as the library is read), and
+`python plex-auto-genres.py --library X --type anime` still works, config file or not.
+
+A container carried over unchanged keeps its nightly schedule: with no `PAG_WEB_PASSWORD`
+the image runs headless, exactly as v1 did. Set the password (or `PAG_MODE=serve`) to
+turn the web UI on.
 
 To convert the file on disk:
 

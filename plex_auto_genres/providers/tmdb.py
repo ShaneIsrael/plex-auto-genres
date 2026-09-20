@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from ..errors import ProviderAuthError, ProviderNotFound
 from ..models import Candidate, ExternalId, MediaType, ProviderResult
-from .base import LookupRequest, Provider, pick_best, rank_candidates, short
+from .base import LookupRequest, Provider, pick_best, rank_candidates, score_of, short
 
 BASE_URL = "https://api.themoviedb.org/3"
 IMAGE_BASE = "https://image.tmdb.org/t/p/w185"
@@ -86,7 +86,7 @@ class TmdbProvider(Provider):
         if not results:
             raise ProviderNotFound(f"tmdb: no {segment} matching {request.title!r}")
 
-        candidates = [
+        candidates: list[tuple[str, int | None, dict]] = [
             (
                 entry.get("title") or entry.get("name") or "",
                 _year_of(entry),
@@ -95,7 +95,9 @@ class TmdbProvider(Provider):
             for entry in results
         ]
         best = pick_best(candidates, request.title, request.year)
-        tmdb_id = best["id"]  # type: ignore[index]
+        if best is None:
+            raise ProviderNotFound(f"tmdb: no {segment} matching {request.title!r}")
+        tmdb_id = best["id"]
 
         details = await self.transport.get_json(
             f"{BASE_URL}/{segment}/{tmdb_id}",
@@ -107,24 +109,23 @@ class TmdbProvider(Provider):
         segment = self._segment(request.media_type)
         params = self._params(query=request.title, include_adult=True)
         payload = await self.transport.get_json(f"{BASE_URL}/search/{segment}", params=params)
-        results = payload.get("results") or []
+        results: list[dict] = payload.get("results") or []
         ranked = rank_candidates(
             [(e.get("title") or e.get("name") or "", _year_of(e), e) for e in results],
             request.title, request.year,
         )
         out: list[Candidate] = []
         for entry in ranked[:limit]:
-            poster = entry.get("poster_path")  # type: ignore[union-attr]
-            vote = entry.get("vote_average")  # type: ignore[union-attr]
+            poster = entry.get("poster_path")
             out.append(Candidate(
                 provider=self.name,
-                provider_id=str(entry["id"]),  # type: ignore[index]
-                title=entry.get("title") or entry.get("name") or "",  # type: ignore[union-attr]
-                year=_year_of(entry),  # type: ignore[arg-type]
-                url=f"https://www.themoviedb.org/{segment}/{entry['id']}",  # type: ignore[index]
+                provider_id=str(entry["id"]),
+                title=entry.get("title") or entry.get("name") or "",
+                year=_year_of(entry),
+                url=f"https://www.themoviedb.org/{segment}/{entry['id']}",
                 image=f"{IMAGE_BASE}{poster}" if poster else None,
-                synopsis=short(entry.get("overview")),  # type: ignore[union-attr]
-                score=float(vote) if isinstance(vote, (int, float)) and vote > 0 else None,
+                synopsis=short(entry.get("overview")),
+                score=score_of(entry.get("vote_average")),
             ))
         return out
 
@@ -141,13 +142,12 @@ class TmdbProvider(Provider):
             names = [g["name"] for g in (payload.get("genres") or []) if g.get("name")]
             names = split_compound_genres(names)
 
-        score = payload.get("vote_average")
         return ProviderResult(
             provider=self.name,
             provider_id=tmdb_id,
             title=title,
             genres=names,
-            score=float(score) if isinstance(score, (int, float)) and score > 0 else None,
+            score=score_of(payload.get("vote_average")),
             url=f"https://www.themoviedb.org/{segment}/{tmdb_id}",
         )
 

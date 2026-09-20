@@ -194,9 +194,11 @@ def test_runs_are_listed_newest_first_with_a_derived_status(client, tmp_path):
 
     body = client.get("/api/v1/runs").json()
     status = {r["run_id"]: r["status"] for r in body}
-    assert [r["run_id"] for r in body][0] == running
+    assert next(r["run_id"] for r in body) == running
+    # An open row is "running" only while a job of this process owns it; a
+    # row nobody owns was interrupted, however recently it was opened.
     assert status == {ok: "ok", partial: "partial", failed: "failed",
-                      undone: "undone", running: "running"}
+                      undone: "undone", running: "interrupted"}
 
 
 def test_unfinished_runs_from_a_previous_process_are_interrupted(tmp_path, config_file, monkeypatch):
@@ -231,7 +233,7 @@ def test_libraries_carry_their_last_run(client, tmp_path):
     store = Store(tmp_path / "state.db")
     run_id = _seed_run(store, "Animes")
     store.close()
-    animes = next(l for l in client.get("/api/v1/libraries").json() if l["name"] == "Animes")
+    animes = next(lib for lib in client.get("/api/v1/libraries").json() if lib["name"] == "Animes")
     assert animes["last_run"]["run_id"] == run_id
 
 
@@ -582,14 +584,14 @@ def test_put_config_writes_the_file_and_the_server_reloads_it(client, config_fil
     assert body["ok"] and body["backup"].endswith("config.json.bak")
 
     on_disk = json.loads(config_file.read_text())
-    assert [l["library"] for l in on_disk["libraries"]] == ["Animes", "Films", "Séries"]
+    assert [lib["library"] for lib in on_disk["libraries"]] == ["Animes", "Films", "Séries"]
     assert on_disk["libraries"][0]["clearGenres"] is False
     assert "plex" not in on_disk
 
     fresh = client.get("/api/v1/config").json()
     assert fresh["etag"] == body["etag"]
     assert fresh["libraries"][2]["library"] == "Séries"
-    libs = {l["name"]: l for l in client.get("/api/v1/libraries").json()}
+    libs = {lib["name"]: lib for lib in client.get("/api/v1/libraries").json()}
     assert "Séries" in libs   # every other endpoint sees the new config at once
 
 
@@ -625,5 +627,50 @@ def test_put_config_preserves_comments_on_disk(client, config_file):
 
     on_disk = json.loads(config_file.read_text())
     assert on_disk["//"] == "hand-written note"
-    animes = next(l for l in on_disk["libraries"] if l["library"] == "Animes")
+    animes = next(lib for lib in on_disk["libraries"] if lib["library"] == "Animes")
     assert animes["//why"] == "because"        # followed the library, not the index
+
+
+# -- review regressions ---------------------------------------------------------
+
+
+def test_start_jobs_queues_nothing_when_a_name_is_unknown(tmp_path, config_file, monkeypatch):
+    from plex_auto_genres.jobs import JobManager
+
+    async def quick(self, job):
+        return None
+
+    monkeypatch.setattr(JobManager, "_execute", quick)
+    app, _ = _job_app(tmp_path, config_file, monkeypatch)
+    with TestClient(app) as c:
+        assert c.post("/api/v1/jobs", json={"libraries": ["Animes", "Nope"]}).status_code == 404
+        assert c.get("/api/v1/jobs").json() == []
+
+
+def test_a_run_owned_by_a_live_job_reports_running(tmp_path, config_file, monkeypatch):
+    import asyncio as _asyncio
+
+    from plex_auto_genres.models import ProviderResult
+    from plex_auto_genres.providers.jikan import JikanProvider
+
+    async def slow_resolve(self, request):
+        await _asyncio.sleep(0.4)
+        return ProviderResult(provider="jikan", provider_id="1", title=request.title,
+                              genres=["Action"])
+
+    monkeypatch.setattr(JikanProvider, "resolve", slow_resolve)
+    app, _ = _job_app(tmp_path, config_file, monkeypatch)
+    with TestClient(app) as c:
+        job = c.post("/api/v1/libraries/Animes/run").json()
+        deadline = time.time() + 5
+        listed: list[dict] = []
+        while time.time() < deadline:
+            listed = c.get("/api/v1/runs").json()
+            if listed and listed[0]["status"] == "running":
+                break
+            time.sleep(0.05)
+        assert listed and listed[0]["status"] == "running"
+        assert listed[0]["job_id"] == job["job_id"]
+
+        done = _wait_job(c, job["job_id"])
+        assert c.get(f"/api/v1/runs/{done['run_ids'][0]}").json()["status"] == "ok"

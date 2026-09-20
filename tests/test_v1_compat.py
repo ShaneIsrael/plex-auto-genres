@@ -55,3 +55,31 @@ def test_flags_that_became_config_settings_are_dropped(capsys):
     out = shim.translate(["--library", "A", "--type", "anime", "--use-genres"])
     assert out == ["run", "--library", "A", "--type", "anime"]
     assert "--use-genres" in capsys.readouterr().err
+
+
+def test_type_before_query_is_understood_too():
+    """The v1 README's own ordering: --type first, then --query."""
+    assert load_shim().translate(["--type", "anime", "--query", "chihayafuru"]) == [
+        "query", "chihayafuru", "--type", "anime"
+    ]
+
+
+def test_the_default_command_keeps_the_global_options(monkeypatch, tmp_path):
+    """`plex-auto-genres --config X --db Y` with no subcommand must honour both."""
+    import sys
+
+    from plex_auto_genres import cli
+    from plex_auto_genres.errors import ConfigError
+
+    seen: dict[str, str] = {}
+
+    def fake_load(path, **_kwargs):
+        seen["path"] = str(path)
+        raise ConfigError("stop here")
+
+    monkeypatch.setattr(cli, "load_config", fake_load)
+    config, db = tmp_path / "custom.json", tmp_path / "custom.db"
+    monkeypatch.setattr(sys, "argv", ["plex-auto-genres", "--config", str(config), "--db", str(db)])
+
+    assert cli.main() == 2
+    assert seen["path"] == str(config) and db.exists()

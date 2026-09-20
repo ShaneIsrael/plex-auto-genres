@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { int } from "../lib/format";
+import { reveal } from "../lib/reveal";
 
 function prefersReducedMotion(): boolean {
   return typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -46,7 +47,7 @@ export function Stat({
 }) {
   const shown = useCountUp(value);
   return (
-    <div className={`stat reveal ${tone ? `stat--${tone}` : ""}`} style={{ "--i": index } as React.CSSProperties}>
+    <div {...reveal(index, `stat ${tone ? `stat--${tone}` : ""}`)}>
       <div className="label">{label}</div>
       <div className="stat__value">{shown == null ? "—" : int(shown)}</div>
       {sub && <div className="stat__sub muted mono">{sub}</div>}

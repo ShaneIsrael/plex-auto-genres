@@ -45,7 +45,6 @@ FROM python:3.12-alpine
 
 LABEL org.opencontainers.image.title="plex-auto-genres" \
       org.opencontainers.image.description="Tag Plex media with genres from TMDB, MyAnimeList or AniList" \
-      org.opencontainers.image.source="https://github.com/Dim145/plex-auto-genres" \
       org.opencontainers.image.licenses="MIT"
 
 ENV PYTHONUNBUFFERED=1 \
@@ -54,13 +53,15 @@ ENV PYTHONUNBUFFERED=1 \
     PAG_DB=/logs/plex-auto-genres.db \
     PAG_POSTERS=/posters \
     PAG_STATIC_DIR=/app/static \
-    PAG_MODE=serve \
     PAG_WEB_PORT=8095 \
     CRON_SCHEDULE="0 1 * * *" \
     RUN_ON_START=true \
     TZ=UTC
 
-# tzdata is what makes the TZ variable mean anything on Alpine.
+# tzdata is what makes the TZ variable mean anything on Alpine. Its version
+# tracks the Alpine release of the base image; pinning it would break every
+# rebuild after the next tzdata update for no security gain.
+# hadolint ignore=DL3018
 RUN apk add --no-cache tzdata
 
 COPY --from=builder /install /usr/local
@@ -74,7 +75,8 @@ RUN adduser -S -u 1000 -h /home/pag pag \
  && mkdir -p /config /logs /posters \
  && chown -R 1000 /config /logs /posters
 
-USER pag
+# Numeric, so the host (and Kubernetes' runAsNonRoot) can verify it.
+USER 1000
 WORKDIR /
 EXPOSE 8095
 

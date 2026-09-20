@@ -1,11 +1,8 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import { BrowserRouter } from "react-router-dom";
+import { createBrowserRouter, createRoutesFromElements, RouterProvider } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import App from "./App";
-import { ConfirmProvider } from "./components/ConfirmDialog";
-import { ToastProvider } from "./components/Toast";
-import { UnsavedProvider } from "./components/UnsavedGuard";
+import { routes } from "./App";
 import "./styles/base.css";
 import "./styles/components.css";
 import "./styles/pages.css";
@@ -25,18 +22,13 @@ const queryClient = new QueryClient({
   },
 });
 
+// A data router, so unsaved edits can block every navigation (useBlocker).
+const router = createBrowserRouter(createRoutesFromElements(routes));
+
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
-      <BrowserRouter>
-        <ToastProvider>
-          <ConfirmProvider>
-            <UnsavedProvider>
-              <App />
-            </UnsavedProvider>
-          </ConfirmProvider>
-        </ToastProvider>
-      </BrowserRouter>
+      <RouterProvider router={router} />
     </QueryClientProvider>
   </StrictMode>,
 );

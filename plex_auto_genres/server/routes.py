@@ -1,11 +1,12 @@
-"""Read-only API. Every handler is a thin translation over the service layer."""
+"""The HTTP API. Every handler is a thin translation over the service layer."""
 
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import time
-from typing import Literal
+from typing import Annotated, Literal
 
 import httpx
 from fastapi import APIRouter, HTTPException, Query, Request, Response
@@ -15,11 +16,12 @@ from .. import __version__
 from ..config import DEFAULT_PROVIDERS, config_json_schema, validate_document, write_config
 from ..doctor import run_doctor
 from ..errors import ConfigError, PlexConnectionError, ProviderError
-from ..jobs import Job, JobConflict, JobError, JobOptions
+from ..jobs import Job, JobConflict, JobError, JobManager, JobOptions
 from ..models import MediaItem, MediaType
 from ..pipeline import media_key
 from ..plexsvc.writer import undo_run
 from ..providers import GUID_SCHEMES, LookupRequest, build_providers
+from ..store import CachedState, run_status
 from . import schemas
 from .state import AppState
 
@@ -37,24 +39,33 @@ def _config_or_503(state: AppState):
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
-def _run_view(row, server_started_at: float, job: Job | None = None) -> schemas.RunView:
-    report = json.loads(row["report"]) if row["report"] else None
-    if row["undone_at"]:
-        status = "undone"
-    elif report and report.get("cancelled"):
-        status = "cancelled"
-    elif row["finished_at"] is None:
-        # A run with no finish time that predates this process cannot still
-        # be running; the process that owned it is gone.
-        status = "running" if row["started_at"] >= server_started_at else "interrupted"
-    elif report is None:
-        status = "interrupted"
-    elif report.get("failed", 0) and not report.get("written", 0):
-        status = "failed"
-    elif report.get("failed", 0):
-        status = "partial"
-    else:
-        status = "ok"
+def _canonical_library(state: AppState, name: str | None) -> str | None:
+    """The library name as the config spells it, so lookups match the store."""
+    if name is None:
+        return None
+    try:
+        entry = state.config().find(name)
+    except ConfigError:
+        entry = None
+    return entry.library if entry is not None else name
+
+
+def _run_view(row, manager: JobManager, by_run: dict[str, Job] | None = None) -> schemas.RunView:
+    """A run row plus what this process knows about the job behind it.
+
+    A row with no finish time is "running" only if a job of this process is
+    executing that library right now and opened the row; otherwise the
+    process that owned it is gone and the run was interrupted.
+    """
+    job = (by_run if by_run is not None else manager.jobs_by_run()).get(row["run_id"])
+    live: Job | None = None
+    if row["finished_at"] is None:
+        running = manager.running_for(row["library"])
+        if running is not None and running.started_at is not None:
+            live = running if row["started_at"] >= running.started_at - 1.0 else None
+    if job is None:
+        job = live
+    status: schemas.RunStatus = run_status(row, live=live is not None)  # type: ignore[assignment]
     return schemas.RunView(
         run_id=row["run_id"],
         library=row["library"],
@@ -64,7 +75,7 @@ def _run_view(row, server_started_at: float, job: Job | None = None) -> schemas.
         started_at=row["started_at"],
         finished_at=row["finished_at"],
         undone_at=row["undone_at"],
-        report=report,
+        report=json.loads(row["report"]) if row["report"] else None,
         job_id=job.job_id if job else None,
     )
 
@@ -146,15 +157,16 @@ async def put_config(request: Request, body: schemas.ConfigDocument):
     """Validate, then atomically replace the config file.
 
     Send the ``etag`` from GET as ``If-Match``: if the file changed on disk in
-    the meantime the write is refused with 412 rather than clobbering it.
+    the meantime -- including into something that no longer parses -- the
+    write is refused with 412 rather than clobbering it.
     """
     state = _state(request)
     if_match = request.headers.get("if-match")
     current = state.config_etag()
-    if if_match and current and if_match.strip('"') != current:
+    if if_match and if_match.strip('"') != (current or ""):
         return JSONResponse(
             status_code=412,
-            headers={"ETag": f'"{current}"'},
+            headers={"ETag": f'"{current}"'} if current else {},
             content={
                 "title": "Precondition Failed",
                 "status": 412,
@@ -190,36 +202,47 @@ async def doctor(request: Request) -> dict:
     return report.as_dict()
 
 
+def _section_size(section) -> int | None:
+    """Item count of a Plex section; decoration, never a reason to fail the listing."""
+    with contextlib.suppress(Exception):
+        return int(section.totalSize)
+    return None
+
+
 @router.get("/libraries", response_model=list[schemas.LibraryView], response_model_by_alias=True)
 async def libraries(request: Request) -> list[schemas.LibraryView]:
     """Configured libraries merged with what Plex actually has."""
     state = _state(request)
     config = _config_or_503(state)
 
-    sections: dict[str, schemas.PlexSection] = {}
+    # casefolded title -> (title as Plex spells it, section)
+    sections: dict[str, tuple[str, schemas.PlexSection]] = {}
     try:
         server = await state.plex()
-        for section in await asyncio.to_thread(server.library.sections):
-            count = None
-            try:
-                count = int(await asyncio.to_thread(lambda s=section: s.totalSize))
-            except Exception:  # count is decoration; never fail the listing for it
-                pass
-            sections[section.title.casefold()] = schemas.PlexSection(
+        listed = await asyncio.to_thread(server.library.sections)
+        # Each count is its own Plex round trip; issue them together.
+        counts = await asyncio.gather(*(asyncio.to_thread(_section_size, s) for s in listed))
+        for section, count in zip(listed, counts, strict=True):
+            sections[section.title.casefold()] = (section.title, schemas.PlexSection(
                 key=int(section.key),
                 section_type=getattr(section, "type", "unknown"),
                 item_count=count,
                 agent=getattr(section, "agent", None),
-            )
+            ))
     except PlexConnectionError:
         pass  # /health carries the error; the listing degrades to config-only
+
+    last_runs = state.store.last_runs_by_library()
+    stats = state.store.stats_by_library()
+    by_run = state.jobs.jobs_by_run()
 
     views: list[schemas.LibraryView] = []
     seen: set[str] = set()
     for entry in config.libraries:
         key = entry.library.casefold()
         seen.add(key)
-        last = state.store.recent_runs(1, entry.library)
+        last = last_runs.get(entry.library)
+        found = sections.get(key)
         views.append(schemas.LibraryView(
             name=entry.library,
             configured=True,
@@ -228,29 +251,17 @@ async def libraries(request: Request) -> list[schemas.LibraryView]:
             providers=list(entry.resolved_providers),
             useGenres=entry.use_genres,
             clearGenres=entry.clear_genres,
-            plex=sections.get(key),
-            stats=state.store.stats(entry.library),
-            last_run=(
-                _run_view(last[0], state.started_at, state.jobs.job_for_run(last[0]["run_id"]))
-                if last else None
-            ),
+            plex=found[1] if found else None,
+            stats=stats.get(entry.library, {}),
+            last_run=_run_view(last, state.jobs, by_run) if last is not None else None,
         ))
 
-    for key, section in sections.items():
+    for key, (title, section) in sections.items():
         if key in seen or section.section_type not in ("movie", "show"):
             continue
-        views.append(
-            schemas.LibraryView(name=_title_of(server, key), configured=False, plex=section)
-        )
+        views.append(schemas.LibraryView(name=title, configured=False, plex=section))
 
     return views
-
-
-def _title_of(server, casefolded: str) -> str:
-    for section in server.library.sections():
-        if section.title.casefold() == casefolded:
-            return section.title
-    return casefolded
 
 
 @router.get("/runs", response_model=list[schemas.RunView])
@@ -261,10 +272,9 @@ async def runs(
 ) -> list[schemas.RunView]:
     """Run history, newest first."""
     state = _state(request)
-    rows = state.store.recent_runs(limit, library)
-    return [
-        _run_view(row, state.started_at, state.jobs.job_for_run(row["run_id"])) for row in rows
-    ]
+    rows = state.store.recent_runs(limit, _canonical_library(state, library))
+    by_run = state.jobs.jobs_by_run()
+    return [_run_view(row, state.jobs, by_run) for row in rows]
 
 
 @router.get("/runs/{run_id}", response_model=schemas.RunView)
@@ -274,12 +284,12 @@ async def run(request: Request, run_id: str) -> schemas.RunView:
     row = state.store.get_run(run_id)
     if row is None:
         raise HTTPException(status_code=404, detail=f"No run {run_id!r}.")
-    return _run_view(row, state.started_at, state.jobs.job_for_run(run_id))
+    return _run_view(row, state.jobs)
 
 
 @router.post("/runs/{run_id}/undo", response_model=schemas.UndoResult)
 async def undo(request: Request, run_id: str) -> schemas.UndoResult:
-    """Restore the tags a run overwrote."""
+    """Restore the tags, ratings or sort titles a run overwrote."""
     state = _state(request)
     row = state.store.get_run(run_id)
     if row is None:
@@ -300,13 +310,15 @@ async def undo(request: Request, run_id: str) -> schemas.UndoResult:
     except PlexConnectionError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     restored, skipped = await asyncio.to_thread(undo_run, server, state.store, run_id)
+    state.forget_items(row["library"])
     return schemas.UndoResult(run_id=run_id, restored=restored, skipped=skipped)
 
 
 @router.get("/bindings", response_model=list[schemas.BindingView])
 async def bindings(request: Request, library: str | None = None) -> list[schemas.BindingView]:
     state = _state(request)
-    return [schemas.BindingView(**dict(row)) for row in state.store.list_bindings(library)]
+    rows = state.store.list_bindings(_canonical_library(state, library))
+    return [schemas.BindingView(**dict(row)) for row in rows]
 
 
 @router.get("/meta/types")
@@ -332,7 +344,7 @@ async def jobs(request: Request) -> list[schemas.JobView]:
 
 @router.post("/jobs", response_model=list[schemas.JobView], status_code=202)
 async def start_jobs(request: Request, body: schemas.StartJobs) -> list[schemas.JobView]:
-    """Queue jobs for the named libraries, or for every enabled one."""
+    """Queue jobs for the named libraries, or for every enabled one. All or nothing."""
     state = _state(request)
     _config_or_503(state)
     options = _options(body)
@@ -340,11 +352,7 @@ async def start_jobs(request: Request, body: schemas.StartJobs) -> list[schemas.
         if body.libraries is None:
             created = state.jobs.enqueue_all(options)
         else:
-            # All or nothing: check for conflicts before queueing anything.
-            for name in body.libraries:
-                if state.jobs.active_for(name) is not None:
-                    raise JobConflict(f"A job for {name!r} is already queued or running.")
-            created = [state.jobs.enqueue(name, options) for name in body.libraries]
+            created = state.jobs.enqueue_many(body.libraries, options)
     except JobConflict as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except JobError as exc:
@@ -415,9 +423,12 @@ async def job_events(request: Request, job_id: str) -> StreamingResponse:
 # -- library browser ---------------------------------------------------------
 
 
-def _match_source(item: MediaItem, entry, bound: bool) -> str:
+def _match_source(item: MediaItem, entry, bound: bool, cached: CachedState | None) -> str:
+    """How the item matched: what the last run recorded, else what the next one would do."""
     if bound:
         return "binding"
+    if cached is not None and cached.status == "ok" and cached.source:
+        return cached.source
     schemes: set[str] = set()
     for name in entry.resolved_providers:
         schemes.update(GUID_SCHEMES.get(name, ()))
@@ -449,7 +460,6 @@ async def library_items(
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     states = state.store.states_for_library(entry.library)
-    providers = state.store.providers_for_library(entry.library)
     bound = {
         row["media_key"]: schemas.BindingView(**dict(row))
         for row in state.store.list_bindings(entry.library)
@@ -482,7 +492,6 @@ async def library_items(
     views: list[schemas.ItemView] = []
     for item, key, _bucket in rows[start:start + size]:
         cached = states.get(key)
-        provider, provider_id = providers.get(key, (None, None))
         views.append(schemas.ItemView(
             rating_key=item.rating_key,
             media_key=key,
@@ -490,12 +499,12 @@ async def library_items(
             year=item.year,
             thumb=item.thumb,
             guids=[str(g) for g in item.guids],
-            match=_match_source(item, entry, key in bound),  # type: ignore[arg-type]
+            match=_match_source(item, entry, key in bound, cached),  # type: ignore[arg-type]
             binding=bound.get(key),
             state=schemas.ItemState(
                 status=cached.status,  # type: ignore[arg-type]
-                provider=provider,
-                provider_id=provider_id,
+                provider=cached.provider,
+                provider_id=cached.provider_id,
                 genres=cached.genres,
                 attempts=cached.attempts,
                 last_error=cached.last_error,
@@ -508,6 +517,18 @@ async def library_items(
     return schemas.ItemsPage(
         library=entry.library, total=len(rows), page=page, size=size, counts=counts, items=views
     )
+
+
+@router.post("/libraries/{name}/refresh", status_code=200)
+async def refresh_library(request: Request, name: str) -> dict:
+    """Drop the server's cached item list so the next read goes back to Plex."""
+    state = _state(request)
+    config = _config_or_503(state)
+    entry = config.find(name)
+    if entry is None:
+        raise HTTPException(status_code=404, detail=f"Library {name!r} is not configured.")
+    state.forget_items(entry.library)
+    return {"refreshed": True}
 
 
 @router.post("/libraries/{name}/items/forget", status_code=200)
@@ -530,7 +551,7 @@ async def forget_item(
 async def search_candidates(
     request: Request,
     q: str = Query(min_length=1, max_length=200),
-    type: MediaType = Query(alias="type"),  # pylint: disable=redefined-builtin
+    type: Annotated[MediaType, Query(alias="type")] = MediaType.ANIME,  # pylint: disable=redefined-builtin
     provider: str | None = None,
     year: int | None = Query(default=None, ge=1800, le=2100),
     limit: int = Query(default=8, ge=1, le=20),
@@ -578,7 +599,8 @@ async def delete_binding(
 ) -> dict:
     """Remove a binding; the item's cached match goes with it."""
     state = _state(request)
-    removed = state.store.delete_binding(library, media_key_)
+    canonical = _canonical_library(state, library) or library
+    removed = state.store.delete_binding(canonical, media_key_)
     if not removed:
         raise HTTPException(status_code=404, detail="No such binding.")
     return {"removed": True}
@@ -599,8 +621,7 @@ async def plex_thumb(request: Request, path: str) -> Response:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     url = server.url(path, includeToken=True)
     try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            upstream = await client.get(url)
+        upstream = await state.http.get(url)
     except httpx.HTTPError as exc:
         raise HTTPException(status_code=502, detail=f"Plex artwork fetch failed: {exc}") from exc
     if upstream.status_code != 200:

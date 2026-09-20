@@ -7,17 +7,15 @@ export function Field({
   help,
   error,
   children,
-  inline = false,
 }: {
   id: string;
   label: ReactNode;
   help?: ReactNode;
   error?: string;
   children: ReactNode;
-  inline?: boolean;
 }) {
   return (
-    <div className={`field ${inline ? "field--inline" : ""} ${error ? "field--invalid" : ""}`}>
+    <div className={`field ${error ? "field--invalid" : ""}`}>
       <label className="field__label label" htmlFor={id}>
         {label}
       </label>

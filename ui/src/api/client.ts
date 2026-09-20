@@ -52,65 +52,43 @@ function noteUnauthorized(status: number, path: string) {
   }
 }
 
-async function get<T>(path: string, params?: Record<string, string | number | undefined>): Promise<T> {
+type Params = Record<string, string | number | undefined>;
+
+/** The one transport: every call, verb and error body goes through here. */
+async function request<T>(
+  method: "GET" | "POST" | "PUT" | "DELETE",
+  path: string,
+  { params, body, headers }: { params?: Params; body?: unknown; headers?: Record<string, string> } = {},
+): Promise<T> {
   const url = new URL(path, window.location.origin);
   for (const [key, value] of Object.entries(params ?? {})) {
     if (value !== undefined && value !== "") url.searchParams.set(key, String(value));
   }
-  const response = await fetch(url, { headers: { Accept: "application/json" } });
+  const response = await fetch(url, {
+    method,
+    headers: { Accept: "application/json", ...(body === undefined ? {} : { "Content-Type": "application/json" }), ...(headers ?? {}) },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
   if (!response.ok) {
     let problem: Problem = { title: response.statusText || "Request failed", status: response.status };
+    let detail: unknown = problem;
     try {
-      problem = { ...problem, ...(await response.json()) };
+      const parsed = (await response.json()) as Record<string, unknown>;
+      problem = { ...problem, ...(parsed as Partial<Problem>) };
+      detail = { ...problem, ...parsed };
     } catch {
       /* body was not JSON; keep the status-derived problem */
     }
     noteUnauthorized(response.status, path);
-    throw new ApiError(problem);
+    throw new ApiError(problem, detail);
   }
   return (await response.json()) as T;
 }
 
-async function post<T>(path: string, body?: unknown): Promise<T> {
-  const response = await fetch(new URL(path, window.location.origin), {
-    method: "POST",
-    headers: { Accept: "application/json", "Content-Type": "application/json" },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  if (!response.ok) {
-    let problem: Problem = { title: response.statusText || "Request failed", status: response.status };
-    try {
-      problem = { ...problem, ...(await response.json()) };
-    } catch {
-      /* not JSON */
-    }
-    noteUnauthorized(response.status, path);
-    throw new ApiError(problem);
-  }
-  return (await response.json()) as T;
-}
-
-async function send<T>(method: "PUT" | "POST" | "DELETE", path: string, body: unknown, headers: Record<string, string> = {}): Promise<T> {
-  const response = await fetch(new URL(path, window.location.origin), {
-    method,
-    headers: { Accept: "application/json", ...(body === undefined ? {} : { "Content-Type": "application/json" }), ...headers },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  if (!response.ok) {
-    let problem: Problem = { title: response.statusText || "Request failed", status: response.status };
-    let body: unknown = problem;
-    try {
-      const parsed = (await response.json()) as Record<string, unknown>;
-      problem = { ...problem, ...(parsed as Partial<Problem>) };
-      body = { ...problem, ...parsed };
-    } catch {
-      /* not JSON */
-    }
-    noteUnauthorized(response.status, path);
-    throw new ApiError(problem, body);
-  }
-  return (await response.json()) as T;
-}
+const get = <T>(path: string, params?: Params) => request<T>("GET", path, { params });
+const send = <T>(method: "PUT" | "POST" | "DELETE", path: string, body?: unknown, headers?: Record<string, string>) =>
+  request<T>(method, path, { body, headers });
+const post = <T>(path: string, body?: unknown) => send<T>("POST", path, body);
 
 export interface ItemsQuery {
   page?: number;
@@ -135,6 +113,8 @@ export const api = {
     }),
   forgetItem: (library: string, mediaKey: string) =>
     send<{ forgotten: boolean }>("POST", `/api/v1/libraries/${encodeURIComponent(library)}/items/forget?media_key=${encodeURIComponent(mediaKey)}`, undefined),
+  refreshLibrary: (library: string) =>
+    send<{ refreshed: boolean }>("POST", `/api/v1/libraries/${encodeURIComponent(library)}/refresh`, undefined),
   search: (params: { q: string; type: MediaType; provider?: string; year?: number | null; limit?: number }) =>
     get<CandidateView[]>("/api/v1/search", {
       q: params.q,
@@ -263,19 +243,17 @@ export interface LiveJob {
  * EventSource is enough; it reconnects on its own and we resync from the
  * `snapshot` event each time.
  */
+const IDLE: LiveJob = { job: null, progress: null, status: null, lastError: null, connected: false };
+
 export function useJobEvents(jobId: string | null | undefined): LiveJob {
-  const [state, setState] = useState<LiveJob>({
-    job: null,
-    progress: null,
-    status: null,
-    lastError: null,
-    connected: false,
-  });
+  const [state, setState] = useState<LiveJob>(IDLE);
   const invalidate = useInvalidateAfterJob();
   const invalidateRef = useRef(invalidate);
   invalidateRef.current = invalidate;
 
   useEffect(() => {
+    // A different job (or none): nothing from the previous stream may linger.
+    setState(IDLE);
     if (!jobId) return;
     const source = new EventSource(`/api/v1/jobs/${encodeURIComponent(jobId)}/events`);
 
@@ -432,6 +410,15 @@ export function useForgetItem() {
   return useMutation({
     mutationFn: ({ library, mediaKey }: { library: string; mediaKey: string }) => api.forgetItem(library, mediaKey),
     onSuccess: invalidate,
+  });
+}
+
+/** Drop the server's cached item list, then re-read: what "Refresh" promises. */
+export function useRefreshLibrary() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (library: string) => api.refreshLibrary(library),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["items"] }),
   });
 }
 

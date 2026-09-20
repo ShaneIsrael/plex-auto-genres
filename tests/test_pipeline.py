@@ -235,3 +235,184 @@ def test_rating_buckets():
     assert rating_bucket(0) is None
     assert rating_bucket(None) is None
     assert rating_bucket("nonsense") is None
+
+
+# -- review regressions: run rows always close, caches are reused ----------------
+
+
+import json  # noqa: E402
+
+import pytest  # noqa: E402
+
+from plex_auto_genres.errors import PlexConnectionError  # noqa: E402
+from plex_auto_genres.plexsvc.writer import undo_run  # noqa: E402
+
+
+class FakeCollection:
+    def __init__(self, rating_key, title, title_sort=""):
+        self.ratingKey, self.title, self.titleSort = rating_key, title, title_sort
+        self.edits: list[dict] = []
+
+    def edit(self, **kwargs):
+        self.edits.append(kwargs)
+        self.titleSort = kwargs.get("titleSort.value", self.titleSort)
+        return self
+
+
+class ServerWithCollections(FakeServer):
+    def fetchItem(self, rating_key):
+        for collection in self._section.collections():
+            if collection.ratingKey == int(rating_key):
+                return collection
+        return super().fetchItem(rating_key)
+
+
+def guid_item(rating_key=1, title="Cowboy Bebop", year=1998, genres=("Old",)) -> FakePlexItem:
+    handle = FakePlexItem(rating_key, title, year, genres=genres)
+    handle.guids = [type("G", (), {"id": f"mal://{rating_key}"})()]
+    return handle
+
+
+@respx.mock
+async def test_a_plex_refusal_during_ratings_closes_the_run_row(store: Store):
+    respx.get(url__regex=r"https://api\.jikan\.moe/v4/anime/\d+").mock(return_value=jikan_ok())
+    handle = guid_item()
+
+    def refuse(rating=None):
+        raise RuntimeError("Plex said no")
+
+    handle.rate = refuse
+    config = make_config(rateAnime=True)
+    run = config.libraries[0]
+
+    report = await Pipeline(config, store, FakeServer([handle])).rate_library(run)
+
+    assert report.failed == 1 and report.written == 0
+    assert "Plex said no" in report.failures[0][1]
+    assert store.get_run(report.run_id)["finished_at"] is not None
+
+
+async def test_a_plex_failure_before_the_item_loop_still_closes_the_row(store: Store):
+    from plexapi.exceptions import NotFound
+
+    class GoneLibrary:
+        def section(self, name):
+            raise NotFound("gone")
+
+        def sections(self):
+            return []
+
+    server = FakeServer([])
+    server.library = GoneLibrary()
+    config = make_config()
+
+    with pytest.raises(PlexConnectionError):
+        await Pipeline(config, store, server).tag_library(config.libraries[0])
+
+    row = store.recent_runs(1, "Animes")[0]
+    assert row["finished_at"] is not None
+    assert "No Plex library" in json.loads(row["report"])["error"]
+
+
+async def test_sort_without_a_prefix_reports_instead_of_raising(store: Store):
+    server = ServerWithCollections([], collections=[FakeCollection(1, "Action")])
+    config = make_config(sortCollections=True)   # the anime defaults set no sortedPrefix
+
+    report = await Pipeline(config, store, server).sort(config.libraries[0])
+
+    assert report.error and "sortedPrefix" in report.error
+    assert store.get_run(report.run_id)["finished_at"] is not None
+
+
+async def test_missing_poster_directory_is_reported_not_raised(store: Store, tmp_path):
+    config = make_config(setPosters=True)
+    report = await Pipeline(config, store, FakeServer([])).set_posters(
+        config.libraries[0], str(tmp_path / "nope")
+    )
+    assert report.error and "not found" in report.error
+    assert store.get_run(report.run_id)["finished_at"] is not None
+
+
+async def test_sort_matches_prefixed_collections_and_is_undoable(store: Store):
+    action = FakeCollection(101, "PAG-Action")
+    server = ServerWithCollections([], collections=[action])
+    config = AppConfig.model_validate({
+        "version": 2,
+        "defaults": {"anime": {"sortedPrefix": "*", "sortedCollections": ["action"]}},
+        "libraries": [{"library": "Animes", "type": "anime", "sortCollections": True}],
+        "plex": {"collection_prefix": "PAG-"},
+    })
+
+    report = await Pipeline(config, store, server).sort(config.libraries[0])
+    assert (report.written, report.skipped) == (1, 0)
+    assert action.titleSort == "*PAG-Action"
+
+    assert undo_run(server, store, report.run_id) == (1, 0)
+    assert action.titleSort == "" and action.edits[-1]["titleSort.locked"] == 0
+
+
+@respx.mock
+async def test_v1_progress_rows_are_adopted_under_the_guid_key(store: Store):
+    handle = guid_item()
+    config = make_config()
+    run = config.libraries[0]
+    # Exactly what import_legacy_logs writes: keyed by "Title (Year)".
+    store.record_success(
+        "Animes", "Cowboy Bebop (1998)", fingerprint=config.fingerprint(run),
+        title="Cowboy Bebop", year=1998, rating_key=None, genres=[], provider=None,
+        provider_id=None,
+    )
+
+    report = await Pipeline(config, store, FakeServer([handle])).tag_library(run)
+
+    assert (report.skipped, report.written) == (1, 0)   # no provider route was needed
+    assert store.get_state("Animes", "mal://1") is not None
+    assert store.get_state("Animes", "Cowboy Bebop (1998)") is None
+
+
+@respx.mock
+async def test_ratings_come_from_the_cache_after_a_tag_run(store: Store):
+    route = respx.get(url__regex=r"https://api\.jikan\.moe/v4/anime/\d+").mock(
+        return_value=jikan_ok(score=8.0)
+    )
+    handle = guid_item()
+    config = make_config(rateAnime=True)
+    run = config.libraries[0]
+    pipeline = Pipeline(config, store, FakeServer([handle]))
+
+    await pipeline.tag_library(run)
+    assert route.call_count == 1 and handle.ratings == [8.0]
+
+    handle.userRating = 8.0                       # what Plex now reports
+    report = await pipeline.rate_library(run)
+    assert route.call_count == 1, "the cached score was used; no provider call"
+    assert report.unchanged == 1 and handle.ratings == [8.0], "an equal rating is not re-sent"
+
+
+@respx.mock
+async def test_rating_collections_fall_back_to_the_cached_provider_score(store: Store):
+    respx.get(url__regex=r"https://api\.jikan\.moe/v4/anime/\d+").mock(
+        return_value=jikan_ok(score=8.0)
+    )
+    handle = guid_item()                          # no Plex rating on the item
+    config = make_config(createRatingCollections=True)
+    run = config.libraries[0]
+    pipeline = Pipeline(config, store, FakeServer([handle]))
+
+    await pipeline.tag_library(run)
+    report = await pipeline.rating_collections(run)
+
+    assert report.written == 1 and handle.last_tags == ["4 Star Rating"]
+
+
+@respx.mock
+async def test_a_provider_auth_failure_falls_through_to_the_next_provider(store: Store):
+    respx.post("https://graphql.anilist.co").mock(return_value=httpx.Response(403))
+    respx.get(url__regex=r"https://api\.jikan\.moe/v4/anime/\d+").mock(return_value=jikan_ok())
+    handle = guid_item()
+    config = make_config(providers=["anilist", "jikan"])
+
+    report = await Pipeline(config, store, FakeServer([handle])).tag_library(config.libraries[0])
+
+    assert report.written == 1 and report.failed == 0
+    assert store.get_state("Animes", "mal://1").source == "guid"

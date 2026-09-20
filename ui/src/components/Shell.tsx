@@ -1,9 +1,7 @@
 import { History, LayoutDashboard, Library, Link2, LogOut, Settings2 } from "lucide-react";
-import { NavLink, Outlet, useNavigate } from "react-router-dom";
+import { NavLink, Outlet } from "react-router-dom";
 import { useAuthStatus, useLogout } from "../api/client";
-import { useConfirm } from "./ConfirmDialog";
 import { StatusStrip } from "./StatusStrip";
-import { useUnsaved } from "./UnsavedGuard";
 
 const NAV = [
   { to: "/", n: "01", label: "Overview", icon: LayoutDashboard, end: true },
@@ -14,21 +12,11 @@ const NAV = [
 ];
 
 export function Shell() {
-  const { dirty } = useUnsaved();
-  const confirm = useConfirm();
-  const navigate = useNavigate();
   const auth = useAuthStatus();
   const logout = useLogout();
   const canSignOut = auth.data?.enabled === true;
-
-  // Leaving a page with unsaved edits asks first; the browser's own
-  // beforeunload covers reloads and closed tabs.
-  const guard = (to: string) => async (e: React.MouseEvent) => {
-    if (!dirty) return;
-    e.preventDefault();
-    const ok = await confirm({ title: "Leave without saving?", body: "Your edits to the config will be lost.", confirmLabel: "Leave", danger: true });
-    if (ok) navigate(to);
-  };
+  // Unsaved edits are guarded by the router blocker in UnsavedGuard, which
+  // covers every link here, the status strip and the Back button alike.
 
   return (
     <div className="shell">
@@ -50,7 +38,7 @@ export function Shell() {
         <ul className="nav">
           {NAV.map(({ to, n, label, icon: Icon, end }) => (
             <li key={to}>
-              <NavLink to={to} end={end} onClick={guard(to)} className={({ isActive }) => `nav__item${isActive ? " is-active" : ""}`}>
+              <NavLink to={to} end={end} className={({ isActive }) => `nav__item${isActive ? " is-active" : ""}`}>
                 <span className="nav__n mono" aria-hidden="true">{n}</span>
                 <Icon className="nav__icon" size={16} strokeWidth={1.75} aria-hidden="true" />
                 <span className="nav__label">{label}</span>

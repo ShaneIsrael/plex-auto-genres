@@ -7,6 +7,7 @@ import { Empty, ErrorBlock } from "../components/Empty";
 import { PageHeader, Panel } from "../components/Panel";
 import { Skeleton } from "../components/Skeleton";
 import { dateTime, relTime } from "../lib/format";
+import { reveal } from "../lib/reveal";
 
 export default function Bindings() {
   const bindings = useBindings();
@@ -33,7 +34,7 @@ export default function Bindings() {
         lede="An item pinned to an exact provider id, overriding the automatic match. Add one from a library's item list."
       />
 
-      <Panel className="reveal" style={{ "--i": 1 } as React.CSSProperties}>
+      <Panel {...reveal(1)}>
         {bindings.isPending ? (
           <div style={{ display: "grid", gap: 12 }}><Skeleton /><Skeleton /><Skeleton width="70%" /></div>
         ) : bindings.isError ? (

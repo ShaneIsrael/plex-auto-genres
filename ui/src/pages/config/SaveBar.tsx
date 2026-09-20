@@ -8,6 +8,7 @@ export function SaveBar({
   doc,
   status,
   errors,
+  blocker = null,
   saving,
   onSave,
   onDiscard,
@@ -15,6 +16,8 @@ export function SaveBar({
   doc: ConfigDocument;
   status: ValidationStatus;
   errors: ValidationIssue[];
+  /** A problem the form found itself, which the server cannot see. */
+  blocker?: string | null;
   saving: boolean;
   onSave: () => void;
   onDiscard: () => void;
@@ -27,6 +30,11 @@ export function SaveBar({
           <>
             <Loader2 size={14} className="spin" aria-hidden="true" />
             <span className="muted">{saving ? "Saving…" : "Checking…"}</span>
+          </>
+        ) : blocker ? (
+          <>
+            <span className="tone-fail">Not saved</span>
+            <span className="savebar__problem">{blocker}</span>
           </>
         ) : status === "invalid" && first ? (
           <>
@@ -47,7 +55,7 @@ export function SaveBar({
         <button type="button" className="button button--ghost" onClick={onDiscard} disabled={saving}>
           <Undo2 size={14} aria-hidden="true" /> Discard
         </button>
-        <button type="button" className="button" onClick={onSave} disabled={saving || status !== "valid"}>
+        <button type="button" className="button" onClick={onSave} disabled={saving || status !== "valid" || blocker !== null}>
           <Save size={14} aria-hidden="true" /> Save
         </button>
       </div>

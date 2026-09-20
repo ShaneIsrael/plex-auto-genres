@@ -5,9 +5,9 @@ from __future__ import annotations
 import httpx
 
 from ..config import ProviderSettings
-from ..errors import ConfigError
+from ..errors import ConfigError, ProviderAuthError
 from ..models import MediaType
-from ..ratelimit import ANILIST_LIMITS, JIKAN_LIMITS, TMDB_LIMITS
+from ..ratelimit import ANILIST_LIMITS, JIKAN_LIMITS, TMDB_LIMITS, shared_limiter
 from .anidb_map import AniDbMapper
 from .anilist import AniListProvider
 from .base import HttpTransport, LookupRequest, Provider, USER_AGENT
@@ -27,6 +27,9 @@ __all__ = [
 ]
 
 _LIMITS = {"jikan": JIKAN_LIMITS, "anilist": ANILIST_LIMITS, "tmdb": TMDB_LIMITS}
+_CLASSES: dict[str, type[Provider]] = {
+    "jikan": JikanProvider, "anilist": AniListProvider, "tmdb": TmdbProvider,
+}
 
 #: Which Plex GUID schemes each provider resolves without a search. Class
 #: attributes, so no credentials are needed to consult this.
@@ -63,38 +66,45 @@ def build_providers(
     media_type: MediaType,
     settings: ProviderSettings,
 ) -> ProviderPool:
-    """Instantiate the requested providers, sharing one connection pool."""
+    """Instantiate the requested providers, sharing one connection pool.
+
+    Everything that can be refused is checked before the client exists, so a
+    bad request (unknown provider, wrong type, missing TMDB key) never leaves
+    an unclosed pool behind.
+    """
+    if not names:
+        raise ConfigError(f"No providers configured for a {media_type.value} library.")
+    for name in names:
+        cls = _CLASSES.get(name)
+        if cls is None:
+            raise ConfigError(f"Unknown provider {name!r}. Known: {', '.join(sorted(_LIMITS))}.")
+        if media_type not in cls.supports:
+            raise ConfigError(
+                f"Provider {name!r} cannot serve a {media_type.value} library. "
+                f"It supports: {', '.join(t.value for t in cls.supports)}."
+            )
+        if name == "tmdb" and not settings.tmdb_api_key:
+            raise ProviderAuthError(
+                "TMDB_API_KEY is not set. It is required for standard-tv and "
+                "standard-movie libraries."
+            )
+
     client = httpx.AsyncClient(
         timeout=httpx.Timeout(20.0, connect=10.0),
         headers={"User-Agent": USER_AGENT, "Accept": "application/json"},
         follow_redirects=True,
         limits=httpx.Limits(max_connections=settings.concurrency * 2),
     )
-
     built: list[Provider] = []
     for name in names:
-        spec = _LIMITS.get(name)
-        if spec is None:
-            raise ConfigError(f"Unknown provider {name!r}. Known: {', '.join(sorted(_LIMITS))}.")
         transport = HttpTransport(
-            client, spec.build(), max_attempts=settings.max_attempts, name=name
+            client, shared_limiter(name, _LIMITS[name]),
+            max_attempts=settings.max_attempts, name=name,
         )
         if name == "tmdb":
-            provider: Provider = TmdbProvider(
-                transport, settings.tmdb_api_key or "", settings.tmdb_language
+            built.append(
+                TmdbProvider(transport, settings.tmdb_api_key or "", settings.tmdb_language)
             )
-        elif name == "jikan":
-            provider = JikanProvider(transport)
         else:
-            provider = AniListProvider(transport)
-
-        if not provider.handles(media_type):
-            raise ConfigError(
-                f"Provider {name!r} cannot serve a {media_type.value} library. "
-                f"It supports: {', '.join(t.value for t in provider.supports)}."
-            )
-        built.append(provider)
-
-    if not built:
-        raise ConfigError(f"No providers configured for a {media_type.value} library.")
+            built.append(_CLASSES[name](transport))
     return ProviderPool(built, client)

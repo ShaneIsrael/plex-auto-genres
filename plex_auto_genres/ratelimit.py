@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+import weakref
 from dataclasses import dataclass
 
 
@@ -21,7 +22,7 @@ class TokenBucket:
     :meth:`acquire` waits until a token is free, then takes it.
     """
 
-    __slots__ = ("_rate", "_period", "_burst", "_tokens", "_updated", "_lock")
+    __slots__ = ("_burst", "_lock", "_period", "_rate", "_tokens", "_updated")
 
     def __init__(self, rate: float, period: float = 1.0, burst: float | None = None) -> None:
         if rate <= 0 or period <= 0:
@@ -57,7 +58,7 @@ class TokenBucket:
 class CompositeLimiter:
     """Several buckets that must all allow a request (e.g. 3/s *and* 60/min)."""
 
-    __slots__ = ("_buckets", "_penalty_until", "_penalty_lock")
+    __slots__ = ("_buckets", "_penalty_lock", "_penalty_until")
 
     def __init__(self, *buckets: TokenBucket) -> None:
         self._buckets = buckets
@@ -90,6 +91,27 @@ class LimitSpec:
 
     def build(self) -> CompositeLimiter:
         return CompositeLimiter(*(TokenBucket(rate=n, period=p, burst=n) for n, p in self.windows))
+
+
+#: One limiter per provider per event loop. A provider's quota is per
+#: *process*, not per pool: a running job and the binding picker's searches
+#: draw on the same allowance, and a 429 cooldown applies to both.
+_SHARED: "weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, dict[str, CompositeLimiter]]" = (
+    weakref.WeakKeyDictionary()
+)
+
+
+def shared_limiter(name: str, spec: LimitSpec) -> CompositeLimiter:
+    """The process-wide limiter for ``name`` on the running loop (fresh if none)."""
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return spec.build()
+    per_loop = _SHARED.setdefault(loop, {})
+    limiter = per_loop.get(name)
+    if limiter is None:
+        limiter = per_loop[name] = spec.build()
+    return limiter
 
 
 #: https://docs.api.jikan.moe/#section/Information/Rate-Limiting -- 3/s, 60/min.

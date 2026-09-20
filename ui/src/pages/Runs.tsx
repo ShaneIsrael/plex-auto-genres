@@ -5,8 +5,9 @@ import { useLibraries, useRuns } from "../api/client";
 import { Empty, ErrorBlock } from "../components/Empty";
 import { PageHeader, Panel } from "../components/Panel";
 import { Skeleton } from "../components/Skeleton";
-import { RUN_STATUS_LABEL, StatusDot, toneForRun } from "../components/StatusDot";
+import { StatusDot, toneForRun } from "../components/StatusDot";
 import { dateTime, duration, int, relTime, shortId } from "../lib/format";
+import { reveal } from "../lib/reveal";
 
 export default function Runs() {
   const [library, setLibrary] = useState("");
@@ -33,7 +34,7 @@ export default function Runs() {
         }
       />
 
-      <Panel className="reveal" style={{ "--i": 1 } as React.CSSProperties}>
+      <Panel {...reveal(1)}>
         {runs.isPending ? (
           <div style={{ display: "grid", gap: 12 }}>{[0, 1, 2, 3, 4].map((i) => <Skeleton key={i} />)}</div>
         ) : runs.isError ? (
@@ -59,7 +60,7 @@ export default function Runs() {
               <tbody>
                 {runs.data.map((run) => (
                   <tr key={run.run_id}>
-                    <td><StatusDot tone={toneForRun(run.status)} label={RUN_STATUS_LABEL[run.status]} /></td>
+                    <td><StatusDot tone={toneForRun(run.status)} label={run.status} /></td>
                     <td className="mono">
                       <Link to={`/runs/${run.run_id}`} title={run.run_id}>{shortId(run.run_id)}</Link>
                       {run.dry_run && <span className="chip chip--dry">dry</span>}
@@ -72,6 +73,7 @@ export default function Runs() {
                         <>
                           <span>{int(run.report.written)} written</span>
                           {run.report.failed > 0 && <span className="tone-fail"> · {int(run.report.failed)} failed</span>}
+                          {run.report.error && <span className="tone-fail" title={run.report.error}> · aborted</span>}
                         </>
                       ) : (
                         <span className="muted">—</span>

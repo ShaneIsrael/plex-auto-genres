@@ -79,7 +79,11 @@ def run_doctor(config_path: str, store: Store, *, check_taxonomy: bool = True) -
     except ConfigError as exc:
         checks.append(Check("plex-credentials", "error", "Plex credentials missing", str(exc)))
 
-    needs_tmdb = any(r.type is not MediaType.ANIME for r in config.libraries)
+    # Key off what will actually run: a disabled library needs nothing, and
+    # an anime library can be pointed at TMDB just as a TV one at Jikan.
+    needs_tmdb = any(
+        "tmdb" in r.resolved_providers for r in config.libraries if r.enabled
+    )
     if needs_tmdb and not config.providers.tmdb_api_key:
         checks.append(Check(
             "tmdb-key", "error", "TMDB_API_KEY is unset",

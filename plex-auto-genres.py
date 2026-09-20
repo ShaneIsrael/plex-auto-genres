@@ -35,10 +35,10 @@ def translate(argv: list[str]) -> list[str]:
         if arg in _V1_FLAGS:
             out.extend(_V1_FLAGS[arg][1:])
         elif arg == "--query":
-            # --query took the place of a subcommand in v1.
-            rest = argv[i + 1:]
-            type_arg = _extract_value(rest, "--type")
-            titles = _positional_words(rest)
+            # --query took the place of a subcommand in v1. --type may sit on
+            # either side of it (the v1 README puts it first).
+            type_arg = _extract_value(argv, "--type")
+            titles = _positional_words(argv[i + 1:])
             return ["query", *titles, *(["--type", type_arg] if type_arg else [])]
         elif arg in ("--use-genres", "--use-keywords", "--clear-genres"):
             print(

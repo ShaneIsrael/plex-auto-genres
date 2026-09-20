@@ -6,9 +6,13 @@ import { ErrorBlock } from "../components/Empty";
 import { LiveProgress } from "../components/LiveProgress";
 import { PageHeader, Panel } from "../components/Panel";
 import { PageSkeleton } from "../components/Skeleton";
-import { RUN_STATUS_LABEL, StatusDot, toneForRun } from "../components/StatusDot";
+import { StatusDot, toneForRun } from "../components/StatusDot";
 import { useToast } from "../components/Toast";
 import { dateTime, duration, int } from "../lib/format";
+import { reveal } from "../lib/reveal";
+
+/** Actions that record snapshots; posters cannot be put back. */
+const UNDOABLE = ["genres", "collections", "ratings", "sort"];
 
 export default function RunDetail() {
   const { runId = "" } = useParams();
@@ -38,6 +42,7 @@ export default function RunDetail() {
     !running &&
     !r.dry_run &&
     !r.undone_at &&
+    UNDOABLE.includes(r.action) &&
     report !== null &&
     (report.written > 0 || report.plex_requests > 0) &&
     ["ok", "partial", "failed", "cancelled"].includes(r.status);
@@ -93,7 +98,7 @@ export default function RunDetail() {
         title={<>{r.library} <span className="muted">/ {r.action}</span></>}
         lede={
           <>
-            <StatusDot tone={toneForRun(r.status)} label={RUN_STATUS_LABEL[r.status]} />
+            <StatusDot tone={toneForRun(r.status)} label={r.status} />
             {r.dry_run && <span className="chip chip--dry">dry run</span>}
             {report?.cancelled && <span className="chip">stopped early</span>}
           </>
@@ -114,9 +119,11 @@ export default function RunDetail() {
                   ? "Already undone"
                   : r.dry_run
                     ? "A dry run changed nothing"
-                    : !canUndo
-                      ? "Nothing to restore"
-                      : "Restore the tags this run overwrote"
+                    : !UNDOABLE.includes(r.action)
+                      ? "Poster uploads cannot be undone"
+                      : !canUndo
+                        ? "Nothing to restore"
+                        : "Restore what this run overwrote"
               }
             >
               <RotateCcw size={14} aria-hidden="true" /> {r.undone_at ? "Undone" : "Undo run"}
@@ -125,14 +132,20 @@ export default function RunDetail() {
         }
       />
 
-      <div className="kv reveal" style={{ "--i": 1 } as React.CSSProperties}>
+      <div {...reveal(1, "kv")}>
         <div><span className="label">Started</span><span className="mono">{dateTime(r.started_at)}</span></div>
         <div><span className="label">Finished</span><span className="mono">{dateTime(r.finished_at)}</span></div>
         {r.undone_at && <div><span className="label">Undone</span><span className="mono">{dateTime(r.undone_at)}</span></div>}
       </div>
 
+      {report?.error && (
+        <Panel {...reveal(2)} eyebrow="Aborted" title="This action could not proceed">
+          <p className="tone-fail mono">{report.error}</p>
+        </Panel>
+      )}
+
       {running && (
-        <Panel className="reveal" style={{ "--i": 2 } as React.CSSProperties} eyebrow="Live" title="In progress">
+        <Panel {...reveal(2)} eyebrow="Live" title="In progress">
           {r.job_id ? (
             <>
               <LiveProgress progress={live.progress} status={live.status ?? "running"} />
@@ -152,7 +165,7 @@ export default function RunDetail() {
       )}
 
       {report ? (
-        <div className="stat-grid stat-grid--dense reveal" style={{ "--i": 2 } as React.CSSProperties}>
+        <div {...reveal(3, "stat-grid stat-grid--dense")}>
           {cells.map(([label, value, tone]) => (
             <div key={label} className={`stat stat--sm ${tone ? `stat--${tone}` : ""}`}>
               <div className="label">{label}</div>
@@ -161,13 +174,13 @@ export default function RunDetail() {
           ))}
         </div>
       ) : !running ? (
-        <Panel className="reveal" style={{ "--i": 2 } as React.CSSProperties}>
+        <Panel {...reveal(3)}>
           <p className="muted">This run never reported back — the process was interrupted before it finished.</p>
         </Panel>
       ) : null}
 
       {report && report.failures.length > 0 && (
-        <Panel className="reveal" style={{ "--i": 3 } as React.CSSProperties} eyebrow="Failures" title={`${int(report.failed)} could not be resolved`} aside={report.failed > report.failures.length ? <span className="faint mono">showing first {report.failures.length}</span> : undefined}>
+        <Panel {...reveal(4)} eyebrow="Failures" title={`${int(report.failed)} could not be resolved`} aside={report.failed > report.failures.length ? <span className="faint mono">showing first {report.failures.length}</span> : undefined}>
           <ul className="failures">
             {report.failures.map(([title, error], i) => (
               <li key={`${title}-${i}`}>

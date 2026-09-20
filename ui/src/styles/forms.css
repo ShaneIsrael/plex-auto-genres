@@ -253,6 +253,11 @@
   justify-items: start;
 }
 
+.kvrow--dup .input:first-child {
+  border-color: var(--fail);
+  box-shadow: 0 0 0 1px var(--fail-dim);
+}
+
 .kvrow {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto;

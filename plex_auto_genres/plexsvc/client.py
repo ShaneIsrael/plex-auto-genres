@@ -80,6 +80,17 @@ def connect(settings: PlexSettings) -> PlexServer:
         raise PlexConnectionError(f"Could not connect to Plex: {exc}") from exc
 
 
+def ping(server: PlexServer) -> None:
+    """Cheap liveness check on an existing connection; raises when it is gone."""
+    query = getattr(server, "query", None)
+    if query is None:  # a test double without a transport is trivially alive
+        return
+    try:
+        query("/identity")
+    except Exception as exc:
+        raise PlexConnectionError(f"Plex stopped answering: {exc}") from exc
+
+
 def get_section(server: PlexServer, library: str):
     """Look up a library section, listing the available ones if it is missing."""
     try:
@@ -129,6 +140,10 @@ def iter_library(server: PlexServer, library: str, *, page_size: int = 200) -> l
                 guids=guids,
                 current_genres=[t.tag for t in (getattr(raw, "genres", None) or [])],
                 current_collections=[t.tag for t in (getattr(raw, "collections", None) or [])],
+                locked_fields={
+                    f.name for f in (getattr(raw, "fields", None) or [])
+                    if getattr(f, "locked", False) and getattr(f, "name", None)
+                },
                 thumb=getattr(raw, "thumb", None) or None,
                 handle=raw,
             )

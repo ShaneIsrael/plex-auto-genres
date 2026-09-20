@@ -263,3 +263,59 @@ async def test_enqueue_all_skips_disabled_and_busy_libraries(manager: JobManager
 def test_unknown_media_type_guard():
     assert MediaType("anime").is_anime
     assert ExternalId("mal", "1").scheme == "mal"
+
+
+# -- review regressions ---------------------------------------------------------
+
+
+async def test_cancelling_before_the_library_is_read_still_closes_the_row(
+    manager: JobManager, store: Store, monkeypatch
+):
+    import time as _time
+
+    from plex_auto_genres import pipeline as pipeline_module
+
+    real = pipeline_module.plex_client.iter_library
+
+    def slow(server, library, **kwargs):
+        _time.sleep(0.4)
+        return real(server, library, **kwargs)
+
+    monkeypatch.setattr(pipeline_module.plex_client, "iter_library", slow)
+    await manager.start()
+    job = manager.enqueue("Animes")
+    await wait_for(lambda: job.status == "running")
+    await asyncio.sleep(0.1)                      # inside iter_library, before begin()
+
+    await manager.cancel(job.job_id)
+    await wait_for(lambda: job.status == "cancelled")
+
+    assert job.run_ids, "the run the job opened is known although begin() never fired"
+    row = store.get_run(job.run_ids[0])
+    assert row["finished_at"] is not None and json.loads(row["report"])["cancelled"] is True
+    assert job.reports and job.reports[0]["run_id"] == job.run_ids[0]
+    await manager.stop()
+
+
+async def test_terminal_messages_reach_a_saturated_subscriber(manager: JobManager):
+    job = manager.enqueue("Animes")
+    queue: asyncio.Queue = asyncio.Queue(maxsize=2)
+    queue.put_nowait(("item", {}))
+    queue.put_nowait(("item", {}))
+    job.subscribers.append(queue)
+
+    manager._finish(job, "done")
+
+    received = [queue.get_nowait() for _ in range(queue.qsize())]
+    assert received[-2][0] == "end" and received[-1] is None
+
+
+async def test_enqueue_many_is_all_or_nothing(manager: JobManager):
+    from plex_auto_genres.jobs import JobError
+
+    with pytest.raises(JobError):
+        manager.enqueue_many(["Animes", "Nope"])
+    assert manager.list() == []
+    with pytest.raises(JobConflict):
+        manager.enqueue_many(["Animes", "animes"])
+    assert manager.list() == []

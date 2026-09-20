@@ -2,7 +2,7 @@ import { LogOut } from "lucide-react";
 import { Link } from "react-router-dom";
 import { isActive, useAuthStatus, useDoctor, useHealth, useJobs, useLogout, useRuns } from "../api/client";
 import { relTime } from "../lib/format";
-import { StatusDot, RUN_STATUS_LABEL, toneForRun } from "./StatusDot";
+import { StatusDot, toneForRun } from "./StatusDot";
 
 /** The three things an operator glances at, plus where the process is. */
 export function StatusStrip() {
@@ -50,7 +50,7 @@ export function StatusStrip() {
         ) : last ? (
           <StatusDot
             tone={toneForRun(last.status)}
-            label={`${last.library} · ${RUN_STATUS_LABEL[last.status]} · ${relTime(last.started_at)}`}
+            label={`${last.library} · ${last.status} · ${relTime(last.started_at)}`}
           />
         ) : (
           <StatusDot tone="muted" label="never" />

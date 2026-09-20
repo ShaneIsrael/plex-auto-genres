@@ -230,9 +230,12 @@ Decisions taken while building it, for whoever picks up phase 2:
   "library started" and "report ready" rather than knowing about progress bars or SSE.
 - **`doctor.run_doctor`** returns structured checks; the CLI and `/api/v1/doctor` render
   the same object.
-- **Run status is derived, not stored**: `undone` > `running` / `interrupted` (an
-  unfinished run older than this process is interrupted) > `failed` / `partial` / `ok`
-  from the report. Phase 2 should keep it derived and simply update `finished_at`.
+- **Run status is derived, not stored**: `undone` > `cancelled` > `running` /
+  `interrupted` > `failed` / `partial` / `ok` from the report. An open row is *running*
+  only while a job of this process is executing that library; any other open row was
+  interrupted, whenever it was opened. The pipeline closes its row on every exit (return,
+  cancel, exception) so an open row is never a live run's steady state. `store.run_status`
+  is the one ladder; the CLI and the API both call it.
 - **Secrets never leave the process.** `/api/v1/config` reports `set`/`unset` booleans
   plus the non-secret connection fields. Keep it that way when the config becomes
   writable: accept a token on PUT, never echo it back.
@@ -386,6 +389,55 @@ Decisions taken:
 - TLS. Terminate it in a reverse proxy; the cookie's `Secure` flag follows
   `X-Forwarded-Proto` or `PAG_WEB_SECURE_COOKIE`.
 - Multiple users, roles, tokens with scopes. One operator, one password.
+
+### Review pass — done
+
+Before the branch was accepted, a review with ten reading angles plus tooling (semgrep,
+bandit, ruff, mypy, pip-audit, pnpm audit, shellcheck, hadolint, actionlint, gitleaks)
+went over everything above. What it changed, so the decisions stay legible:
+
+- **Run rows always close.** `Pipeline._open_run` is a context manager around every
+  action: a cancel marks the report `cancelled`, any other exception lands in
+  `report.error`, and `finish_run` runs either way. `rate_library` and
+  `rating_collections` catch Plex-side refusals per item like `tag_library` always did;
+  `sort` without a `sortedPrefix` and `set_posters` without a directory report instead of
+  raising. The job manager reads every run its job opened back from the store, so a
+  cancel that lands before `begin()` still shows up.
+- **Terminal SSE messages are forced through.** A saturated subscriber queue loses
+  progress events but never the `end` event or the sentinel: `_finish` evicts the oldest
+  entry to make room.
+- **Auth hardening.** Session tokens are compared as bytes (a non-ASCII cookie used to
+  raise inside the middleware); the login limiter keys on the connecting peer, believes
+  `X-Forwarded-For` only from `PAG_WEB_TRUSTED_PROXIES`, has a global budget and bounded
+  memory; the public-path list is derived from the router prefix.
+- **v1 compatibility, for real.** `--config`/`--db` survive the implicit `run`; the shim
+  accepts `--type` before `--query`; `run --library X --type T` and the binding commands
+  work without a config file; imported v1 progress rows are adopted under the GUID key
+  when a library is read; a malformed v1 run entry is skipped, not fatal; the image
+  runs headless when no login is configured instead of exiting.
+- **Undo covers ratings and sort titles** (snapshots for both), and restores the lock
+  state a tag field had before the run. Poster uploads remain the one irreversible
+  action and the UI says so.
+- **Provider plumbing.** Every non-2xx is a `ProviderError` (401/403 →
+  `ProviderAuthError`), so fallback providers are tried and the ratings pass survives
+  a bad key; rate limiters are shared per provider per process, not minted per pool;
+  the AniDB table downloads once under concurrency; results carry `matched_by`, stored
+  with the cache row, so the browser shows how an item actually matched.
+- **Less work per request.** The tag action loads a library's cache states and bindings
+  in one query each; the ratings pass rates from the cached provider score; `/libraries`
+  is two aggregate queries plus one gathered Plex round trip per section; the poster
+  proxy shares one HTTP client; the Plex connection is pinged on its TTL rather than
+  rebuilt; item caches are per-library-locked and dropped when a job finishes or
+  "Refresh" is pressed (a real endpoint now).
+- **UI.** A data router with `useBlocker` guards every navigation, not five links; the
+  Config page shows its error instead of a skeleton; library cards keep stable keys
+  when reordered; duplicate keys in a replace list are flagged and block Save; the
+  binding picker remounts with the library's real type; `page=` is validated; the
+  three transport helpers became one.
+- **Known, documented limits.** A per-library override cannot opt out of inherited
+  `sortedCollections` (empty means inherit; use `sortCollections: false`); the CLI cannot
+  tell a live run from an interrupted one and never says "running"; the poster action
+  has no undo.
 
 ### Next
 

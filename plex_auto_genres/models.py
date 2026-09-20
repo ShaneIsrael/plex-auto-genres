@@ -78,6 +78,9 @@ class MediaItem:
     guids: list[ExternalId] = field(default_factory=list)
     current_genres: list[str] = field(default_factory=list)
     current_collections: list[str] = field(default_factory=list)
+    #: Fields Plex reports as locked against agent refreshes (``genre``, ...),
+    #: so an undo can put the lock back the way it was.
+    locked_fields: set[str] = field(default_factory=set)
     #: Plex poster path, e.g. ``/library/metadata/123/thumb/456``.
     thumb: str | None = None
     #: The live plexapi object, kept so the writer can edit it.
@@ -108,6 +111,10 @@ class ProviderResult:
     #: 0-10 scale, matching what Plex's ``rate()`` expects.
     score: float | None = None
     url: str | None = None
+    #: How the record was found: ``binding`` | ``guid`` | ``search``. Set by
+    #: :meth:`Provider.resolve`; stored with the cache entry so the UI reports
+    #: what actually happened rather than guessing from the GUIDs.
+    matched_by: str = "search"
 
 
 @dataclass(slots=True)
@@ -169,6 +176,9 @@ class RunReport:
     failures: list[tuple[str, str]] = field(default_factory=list)
     #: True when the run was cancelled before every item was processed.
     cancelled: bool = False
+    #: Set when the action as a whole could not proceed (Plex unreachable,
+    #: a missing sortedPrefix, ...). Item-level failures go in ``failures``.
+    error: str | None = None
 
     @property
     def total(self) -> int:
@@ -190,4 +200,5 @@ class RunReport:
             "duration_s": round(self.duration_s, 2),
             "failures": self.failures[:50],
             "cancelled": self.cancelled,
+            "error": self.error,
         }

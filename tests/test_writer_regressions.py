@@ -147,3 +147,42 @@ def test_writes_record_an_undo_snapshot(store: Store, item):
     import json
     assert json.loads(snaps[0]["before"]) == ["Animation", "Comedy"]
     assert json.loads(snaps[0]["after"]) == ["Action"]
+
+
+# -- review regressions: undo restores locks and ratings -----------------------
+
+
+def _server_for(handle):
+    return type("Server", (), {"fetchItem": lambda self, key: handle})()
+
+
+def test_undo_restores_the_lock_state_the_item_had(store: Store, item):
+    from plex_auto_genres.plexsvc.writer import undo_run
+
+    writer = PlexWriter(store, "run1", "Lib")
+    writer.write_tags(item, TagField.GENRE, ["Action"], clear=True)
+    assert item.handle.edits[-1]["genre.locked"] == 1
+
+    assert undo_run(_server_for(item.handle), store, "run1") == (1, 0)
+    assert item.handle.last_tags == ["Animation", "Comedy"]
+    assert item.handle.edits[-1]["genre.locked"] == 0, "the field was unlocked before the run"
+
+
+def test_undo_restores_a_previous_rating(store: Store, item):
+    from plex_auto_genres.plexsvc.writer import undo_run
+
+    item.handle.userRating = 6.0
+    writer = PlexWriter(store, "run1", "Lib")
+    assert writer.set_rating(item, 8.5) and item.handle.ratings == [8.5]
+
+    assert undo_run(_server_for(item.handle), store, "run1") == (1, 0)
+    assert item.handle.ratings[-1] == 6.0
+
+
+def test_undo_clears_a_rating_that_did_not_exist(store: Store, item):
+    from plex_auto_genres.plexsvc.writer import undo_run
+
+    writer = PlexWriter(store, "run1", "Lib")
+    assert writer.set_rating(item, 8.5)
+    assert undo_run(_server_for(item.handle), store, "run1") == (1, 0)
+    assert item.handle.ratings[-1] == -1.0, "plexapi's 'unrated'"

@@ -5,8 +5,6 @@ from __future__ import annotations
 import json
 import os
 
-import pytest
-
 from plex_auto_genres.config import (
     AppConfig,
     editable_document,
@@ -139,3 +137,18 @@ def test_write_never_stores_env_only_sections(tmp_path):
 def test_write_to_a_new_path_has_no_backup(tmp_path):
     etag, backup = write_config(tmp_path / "fresh" / "config.json", {"version": 2, "libraries": []})
     assert backup is None and etag
+
+
+def test_write_through_a_symlink_keeps_the_link(tmp_path):
+    real = tmp_path / "real" / "config.json"
+    real.parent.mkdir()
+    real.write_text(json.dumps({"version": 2, "libraries": []}))
+    link = tmp_path / "config.json"
+    link.symlink_to(real)
+
+    _, backup = write_config(link, {"version": 2, "defaults": {}, "libraries": [
+        {"library": "A", "type": "anime"}]})
+
+    assert link.is_symlink(), "the link itself was not replaced by a regular file"
+    assert json.loads(real.read_text())["libraries"][0]["library"] == "A"
+    assert backup == real.with_name("config.json.bak") and backup.is_file()

@@ -13,7 +13,14 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 from . import __version__
-from .config import AppConfig, CONFIG_VERSION, config_json_schema, load_config, migrate_v1
+from .config import (
+    AppConfig,
+    CONFIG_VERSION,
+    LibraryRun,
+    config_json_schema,
+    load_config,
+    migrate_v1,
+)
 from .doctor import DoctorReport, run_doctor
 from .errors import ConfigError, PagError, PlexConnectionError
 from .models import MediaType, RunReport
@@ -23,7 +30,7 @@ from .providers import LookupRequest, build_providers
 from .reporting import ProgressBar, Style, print_report
 from .runner import ACTIONS, run_libraries
 from .scheduler import run_forever, validate_cron
-from .store import Store
+from .store import Store, run_status
 
 log = logging.getLogger("plex_auto_genres")
 
@@ -108,7 +115,9 @@ def build_parser() -> argparse.ArgumentParser:
     failures.add_argument("--retry", action="store_true",
                           help="Clear their backoff so the next run retries them.")
 
-    sub.add_parser("doctor", help="Validate the config and flag stale genre names.")
+    doctor = sub.add_parser("doctor", help="Validate the config and flag stale genre names.")
+    doctor.add_argument("--offline", action="store_true",
+                        help="Skip checks that need the network (the MAL genre list).")
     sub.add_parser("schema", help="Print the config JSON Schema (for tooling and web UIs).")
 
     migrate = sub.add_parser("migrate-config", help="Rewrite a v1 config file in the v2 format.")
@@ -167,20 +176,24 @@ def _confirm(prompt: str) -> bool:
 def _selected_runs(config: AppConfig, names: list[str] | None, type_override: str | None):
     if not names:
         return [r for r in config.libraries if r.enabled]
+    if type_override and len(names) != 1:
+        raise ConfigError("--type can only be used with exactly one --library.")
 
     selected = []
     for name in names:
         found = config.find(name)
+        if found is None and type_override:
+            # v1 ran any Plex library from the command line alone; keep that.
+            found = LibraryRun(library=name, type=MediaType(type_override))
         if found is None:
             raise ConfigError(
                 f"Library {name!r} is not in the config. Known: "
-                f"{', '.join(r.library for r in config.libraries) or '(none)'}."
+                f"{', '.join(r.library for r in config.libraries) or '(none)'}. "
+                "Add --type to run it with the defaults for that type."
             )
         selected.append(found)
 
     if type_override:
-        if len(selected) != 1:
-            raise ConfigError("--type can only be used with exactly one --library.")
         selected = [selected[0].model_copy(update={"type": MediaType(type_override)})]
     return selected
 
@@ -249,9 +262,8 @@ async def cmd_run(args, config: AppConfig, store: Store, style: Style) -> int:
     return 1 if any(r.failed for r in reports if r.action in ("genres", "collections")) else 0
 
 
-async def cmd_query(args, config: AppConfig, store: Store, style: Style) -> int:
+async def cmd_query(args, config: AppConfig, style: Style) -> int:
     """Show what the providers return for a title, without writing anything."""
-    del store  # kept for signature symmetry with the other cmd_* functions
     media_type = MediaType(args.type)
     providers = tuple(args.provider) if args.provider else None
     from .config import DEFAULT_PROVIDERS
@@ -292,29 +304,37 @@ async def cmd_query(args, config: AppConfig, store: Store, style: Style) -> int:
     return 1
 
 
-def cmd_bind(args, store: Store, style: Style) -> int:
+def _library_name(config: AppConfig, name: str) -> str:
+    """The name as the config spells it, so the store's rows match the pipeline's."""
+    entry = config.find(name)
+    return entry.library if entry is not None else name
+
+
+def cmd_bind(args, config: AppConfig, store: Store, style: Style) -> int:
     """Pin a Plex item to a provider id."""
-    store.set_binding(args.library, args.title, args.provider, args.provider_id, args.note)
+    library = _library_name(config, args.library)
+    store.set_binding(library, args.title, args.provider, args.provider_id, args.note)
     print(
-        f"{style.green('bound')} {style.bold(args.title)} in {args.library} "
+        f"{style.green('bound')} {style.bold(args.title)} in {library} "
         f"-> {args.provider}://{args.provider_id}"
     )
     print(style.dim("  Its cache entry was cleared; the next run will use this id."))
     return 0
 
 
-def cmd_unbind(args, store: Store, style: Style) -> int:
+def cmd_unbind(args, config: AppConfig, store: Store, style: Style) -> int:
     """Remove a manual binding."""
-    if store.delete_binding(args.library, args.title):
-        print(f"{style.green('removed')} binding for {args.title} in {args.library}")
+    library = _library_name(config, args.library)
+    if store.delete_binding(library, args.title):
+        print(f"{style.green('removed')} binding for {args.title} in {library}")
         return 0
-    print(style.yellow(f"No binding for {args.title!r} in {args.library!r}."))
+    print(style.yellow(f"No binding for {args.title!r} in {library!r}."))
     return 1
 
 
-def cmd_bindings(args, store: Store, style: Style, as_json: bool) -> int:
+def cmd_bindings(args, config: AppConfig, store: Store, style: Style, as_json: bool) -> int:
     """List manual bindings."""
-    rows = store.list_bindings(args.library)
+    rows = store.list_bindings(_library_name(config, args.library) if args.library else None)
     if as_json:
         print(json.dumps([dict(r) for r in rows], indent=2, ensure_ascii=False))
         return 0
@@ -369,13 +389,18 @@ def cmd_runs(args, store: Store, style: Style, as_json: bool) -> int:
     for row in rows:
         when = time.strftime("%Y-%m-%d %H:%M", time.localtime(row["started_at"]))
         report = json.loads(row["report"]) if row["report"] else {}
-        if row["undone_at"]:
-            result = style.yellow("undone")
-        elif not report:
-            result = style.red("interrupted")
+        # The same ladder the API uses; the CLI cannot know whether an open
+        # row belongs to a live process, so it never says "running".
+        status = run_status(row, live=False)
+        if status in ("undone", "cancelled"):
+            result = style.yellow(status)
+        elif status == "interrupted":
+            result = style.red(status)
         else:
             result = (f"{report.get('written', 0)} written, "
                       f"{report.get('failed', 0)} failed")
+            if report.get("error"):
+                result += style.red(f"  {report['error']}")
         flag = style.dim(" (dry)") if row["dry_run"] else ""
         print(f"{row['run_id']:14} {when:17} {row['library']:20} "
               f"{row['action'] + flag:18} {result}")
@@ -406,9 +431,11 @@ def cmd_failures(args, store: Store, style: Style, as_json: bool) -> int:
     return 0
 
 
-def cmd_doctor(config_path: str, store: Store, style: Style, as_json: bool = False) -> int:
+def cmd_doctor(
+    config_path: str, store: Store, style: Style, as_json: bool = False, *, offline: bool = False
+) -> int:
     """Check the config, the credentials and the anime genre names."""
-    report = run_doctor(config_path, store)
+    report = run_doctor(config_path, store, check_taxonomy=not offline)
     if as_json:
         print(json.dumps(report.as_dict(), indent=2, ensure_ascii=False))
         return 0 if report.ok else 1
@@ -530,9 +557,11 @@ def main(argv: list[str] | None = None) -> int:
     """Parse the command line and dispatch. Returns the process exit code."""
     load_dotenv()
     parser = build_parser()
-    args = parser.parse_args(argv)
+    raw_argv = list(sys.argv[1:] if argv is None else argv)
+    args = parser.parse_args(raw_argv)
     if args.command is None:
-        args = parser.parse_args([*(argv or []), "run"])
+        # "run" is the default command; keep the global options typed before it.
+        args = parser.parse_args([*raw_argv, "run"])
 
     _setup_logging(args.verbose)
     style = Style()
@@ -546,13 +575,16 @@ def main(argv: list[str] | None = None) -> int:
 
         with Store(args.db) as store:
             if args.command == "doctor":
-                return cmd_doctor(args.config, store, style, args.json)
-            if args.command == "bind":
-                return cmd_bind(args, store, style)
-            if args.command == "unbind":
-                return cmd_unbind(args, store, style)
-            if args.command == "bindings":
-                return cmd_bindings(args, store, style, args.json)
+                return cmd_doctor(args.config, store, style, args.json, offline=args.offline)
+            if args.command in ("bind", "unbind", "bindings"):
+                # Bindings are keyed by the config's spelling of the library;
+                # the config itself is optional for them, as in v1.
+                config = load_config(args.config, missing_ok=True)
+                if args.command == "bind":
+                    return cmd_bind(args, config, store, style)
+                if args.command == "unbind":
+                    return cmd_unbind(args, config, store, style)
+                return cmd_bindings(args, config, store, style, args.json)
             if args.command == "runs":
                 return cmd_runs(args, store, style, args.json)
             if args.command == "failures":
@@ -563,9 +595,11 @@ def main(argv: list[str] | None = None) -> int:
                 store.close()  # the app's lifespan opens its own connection
                 return cmd_serve(args, style)
 
-            config = load_config(args.config)
+            # `run --library X --type T` never needed a config file in v1.
+            adhoc = args.command == "run" and bool(args.library) and bool(args.type)
+            config = load_config(args.config, missing_ok=adhoc or args.command == "query")
             if args.command == "query":
-                return asyncio.run(cmd_query(args, config, store, style))
+                return asyncio.run(cmd_query(args, config, style))
             if args.command == "undo":
                 return asyncio.run(cmd_undo(args, config, store, style))
             return asyncio.run(cmd_run(args, config, store, style))

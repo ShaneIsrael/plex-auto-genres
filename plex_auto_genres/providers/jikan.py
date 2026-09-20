@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from ..errors import ProviderNotFound
 from ..models import Candidate, ExternalId, MediaType, ProviderResult
-from .base import LookupRequest, Provider, pick_best, rank_candidates, short
+from .base import LookupRequest, Provider, pick_best, rank_candidates, score_of, short
 
 BASE_URL = "https://api.jikan.moe/v4"
 
@@ -43,38 +43,40 @@ class JikanProvider(Provider):
         if not results:
             raise ProviderNotFound(f"jikan: no anime matching {title!r}")
 
-        candidates = [(_best_title(entry), _year_of(entry), entry) for entry in results]
+        candidates: list[tuple[str, int | None, dict]] = [
+            (_best_title(entry), _year_of(entry), entry) for entry in results
+        ]
         best = pick_best(candidates, title, request.year)
+        if best is None:
+            raise ProviderNotFound(f"jikan: no anime matching {title!r}")
 
         # The search payload already carries genres, so unlike v1 there is no
         # mandatory second request just to read them.
-        if best.get("genres") or best.get("themes"):  # type: ignore[union-attr]
-            return self._to_result(best)  # type: ignore[arg-type]
-        best_id = str(best["mal_id"])  # type: ignore[index]
-        return await self.fetch_by_id(ExternalId("mal", best_id), request)
+        if best.get("genres") or best.get("themes"):
+            return self._to_result(best)
+        return await self.fetch_by_id(ExternalId("mal", str(best["mal_id"])), request)
 
     async def search_candidates(self, request: LookupRequest, limit: int = 8) -> list[Candidate]:
         title = clean_anime_title(request.title)
         payload = await self.transport.get_json(
             f"{BASE_URL}/anime", params={"q": title, "limit": max(limit, 10)}
         )
+        entries: list[dict] = payload.get("data") or []
         ranked = rank_candidates(
-            [(_best_title(e), _year_of(e), e) for e in (payload.get("data") or [])],
-            title, request.year,
+            [(_best_title(e), _year_of(e), e) for e in entries], title, request.year
         )
         out: list[Candidate] = []
         for entry in ranked[:limit]:
-            images = (entry.get("images") or {}).get("jpg") or {}  # type: ignore[union-attr]
-            score = entry.get("score")  # type: ignore[union-attr]
+            images = (entry.get("images") or {}).get("jpg") or {}
             out.append(Candidate(
                 provider=self.name,
-                provider_id=str(entry.get("mal_id")),  # type: ignore[union-attr]
-                title=_best_title(entry),  # type: ignore[arg-type]
-                year=_year_of(entry),  # type: ignore[arg-type]
-                url=entry.get("url"),  # type: ignore[union-attr]
+                provider_id=str(entry.get("mal_id")),
+                title=_best_title(entry),
+                year=_year_of(entry),
+                url=entry.get("url"),
                 image=images.get("image_url"),
-                synopsis=short(entry.get("synopsis")),  # type: ignore[union-attr]
-                score=float(score) if isinstance(score, (int, float)) and score > 0 else None,
+                synopsis=short(entry.get("synopsis")),
+                score=score_of(entry.get("score")),
                 genres=_genre_names(entry),
             ))
         return out
@@ -87,13 +89,12 @@ class JikanProvider(Provider):
         for bucket in ("genres", "explicit_genres", "themes", "demographics"):
             names.extend(entry["name"] for entry in (data.get(bucket) or []) if entry.get("name"))
 
-        score = data.get("score")
         return ProviderResult(
             provider=self.name,
             provider_id=str(data.get("mal_id")),
             title=_best_title(data),
             genres=names,
-            score=float(score) if isinstance(score, (int, float)) and score > 0 else None,
+            score=score_of(data.get("score")),
             url=data.get("url"),
         )
 

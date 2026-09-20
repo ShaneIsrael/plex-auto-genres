@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { reveal } from "../lib/reveal";
 
 export function Panel({
   title,
@@ -43,7 +44,7 @@ export function PageHeader({
   actions?: ReactNode;
 }) {
   return (
-    <header className="page-head reveal" style={{ "--i": 0 } as React.CSSProperties}>
+    <header {...reveal(0, "page-head")}>
       <div>
         <div className="label page-head__eyebrow">{eyebrow}</div>
         <h1 className="page-head__title">{title}</h1>

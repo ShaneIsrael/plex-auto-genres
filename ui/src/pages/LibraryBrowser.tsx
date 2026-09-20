@@ -1,8 +1,8 @@
 import { ArrowLeft, Link2, Pin, RefreshCw, RotateCcw, Search, Unlink } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
-import { api, useConfig, useDeleteBinding, useForgetItem, useLibraryItems } from "../api/client";
-import type { ItemStatusFilter, ItemView, MediaType } from "../api/types";
+import { api, useConfig, useDeleteBinding, useForgetItem, useLibraryItems, useRefreshLibrary } from "../api/client";
+import type { ItemStatusFilter, ItemView } from "../api/types";
 import { BindingPicker } from "../components/BindingPicker";
 import { useConfirm } from "../components/ConfirmDialog";
 import { Empty, ErrorBlock } from "../components/Empty";
@@ -12,6 +12,7 @@ import { Skeleton } from "../components/Skeleton";
 import { StatusDot } from "../components/StatusDot";
 import { useToast } from "../components/Toast";
 import { int, relTime } from "../lib/format";
+import { reveal } from "../lib/reveal";
 
 const FILTERS: { key: ItemStatusFilter; label: string }[] = [
   { key: "all", label: "All" },
@@ -37,10 +38,12 @@ export default function LibraryBrowser() {
   const [params, setParams] = useSearchParams();
   const config = useConfig();
   const run = config.data?.libraries.find((l) => l.library.toLowerCase() === name.toLowerCase()) ?? null;
-  const type: MediaType = run?.type ?? "anime";
+  // The config's spelling, so bindings and forgets land on the same rows the pipeline reads.
+  const library = run?.library ?? name;
 
   const status = (params.get("status") as ItemStatusFilter) || "all";
-  const page = Math.max(1, Number(params.get("page") || 1));
+  const rawPage = Number(params.get("page"));
+  const page = Number.isFinite(rawPage) && rawPage >= 1 ? Math.floor(rawPage) : 1;
   const [text, setText] = useState(params.get("q") ?? "");
   const q = useDebounced(text.trim(), 300);
   useEffect(() => {
@@ -56,6 +59,7 @@ export default function LibraryBrowser() {
   }, [q]);
 
   const items = useLibraryItems(name, { page, size: PAGE_SIZE, q, status });
+  const refresh = useRefreshLibrary();
   const forget = useForgetItem();
   const unbind = useDeleteBinding();
   const confirm = useConfirm();
@@ -85,7 +89,7 @@ export default function LibraryBrowser() {
     });
     if (!ok) return;
     try {
-      await unbind.mutateAsync({ library: name, mediaKey: item.media_key });
+      await unbind.mutateAsync({ library, mediaKey: item.media_key });
       toast("ok", "Binding removed", item.title);
     } catch (e) {
       toast("fail", "Could not remove", (e as Error).message);
@@ -94,7 +98,7 @@ export default function LibraryBrowser() {
 
   const onForget = async (item: ItemView) => {
     try {
-      await forget.mutateAsync({ library: name, mediaKey: item.media_key });
+      await forget.mutateAsync({ library, mediaKey: item.media_key });
       toast("ok", "Will retry on the next run", item.title);
     } catch (e) {
       toast("fail", "Could not reset", (e as Error).message);
@@ -107,8 +111,8 @@ export default function LibraryBrowser() {
     <div className="page">
       <Link to="/libraries" className="backlink mono reveal"><ArrowLeft size={14} aria-hidden="true" /> libraries</Link>
       <PageHeader
-        eyebrow={`03 · ${name}`}
-        title={name}
+        eyebrow={`03 · ${library}`}
+        title={library}
         lede={
           run ? (
             <span>
@@ -122,13 +126,19 @@ export default function LibraryBrowser() {
           )
         }
         actions={
-          <button type="button" className="button button--ghost" onClick={() => items.refetch()} disabled={items.isFetching} title="Re-read the library from Plex">
-            <RefreshCw size={14} aria-hidden="true" className={items.isFetching ? "spin" : ""} /> Refresh
+          <button
+            type="button"
+            className="button button--ghost"
+            onClick={() => refresh.mutate(library)}
+            disabled={!run || refresh.isPending || items.isFetching}
+            title="Re-read the library from Plex"
+          >
+            <RefreshCw size={14} aria-hidden="true" className={refresh.isPending || items.isFetching ? "spin" : ""} /> Refresh
           </button>
         }
       />
 
-      <div className="browser-toolbar reveal" style={{ "--i": 1 } as React.CSSProperties}>
+      <div {...reveal(1, "browser-toolbar")}>
         <label className="sr-only" htmlFor="item-search">Search titles</label>
         <input id="item-search" className="input" type="search" placeholder="Search titles…" value={text} onChange={(e) => setText(e.target.value)} />
         <div className="filters" role="group" aria-label="Filter by status">
@@ -141,7 +151,7 @@ export default function LibraryBrowser() {
         </div>
       </div>
 
-      <Panel className="reveal" style={{ "--i": 2 } as React.CSSProperties}>
+      <Panel {...reveal(2)}>
         {items.isPending ? (
           <div style={{ display: "grid", gap: 14 }}>{[0, 1, 2, 3, 4].map((i) => <Skeleton key={i} height={40} />)}</div>
         ) : items.isError ? (
@@ -162,7 +172,9 @@ export default function LibraryBrowser() {
         )}
       </Panel>
 
-      <BindingPicker library={name} type={type} item={picking} preferredProvider={run?.providers?.[0]} onClose={() => setPicking(null)} />
+      {run && (
+        <BindingPicker key={run.type} library={library} type={run.type} item={picking} preferredProvider={run.providers?.[0]} onClose={() => setPicking(null)} />
+      )}
     </div>
   );
 }

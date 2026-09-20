@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from ..config import AppConfig, etag_of, load_config
+import httpx
+
+from ..config import AppConfig, etag_of, load_config, read_config_etag
 from ..errors import ConfigError, PlexConnectionError
-from ..jobs import JobManager
+from ..jobs import Job, JobManager
 from ..models import MediaItem
 from ..plexsvc import client as plex_client
 from ..store import Store
@@ -46,7 +49,12 @@ class AppState:
         self.started_at = time.time()
         self.scheduler_cron: str | None = None
         self.scheduler_next: float | None = None
-        self.jobs = JobManager(self.store, self.config, self.plex, posters_dir=posters_dir)
+        self.jobs = JobManager(
+            self.store, self.config, self.plex, posters_dir=posters_dir,
+            on_finish=self._after_job,
+        )
+        #: Shared client for the poster proxy: one pool for the whole process.
+        self.http = httpx.AsyncClient(timeout=15.0)
 
         self._config: AppConfig | None = None
         self._config_mtime: float | None = None
@@ -56,8 +64,11 @@ class AppState:
         self._plex_ttl = plex_ttl_s
         self._plex_lock = asyncio.Lock()
         self._items: dict[str, tuple[float, list[MediaItem]]] = {}
-        self._items_lock = asyncio.Lock()
+        self._item_locks: dict[str, asyncio.Lock] = {}
         self.items_ttl_s = 60.0
+
+    async def aclose(self) -> None:
+        await self.http.aclose()
 
     def close(self) -> None:
         self.store.close()
@@ -78,11 +89,15 @@ class AppState:
         return self._config
 
     def config_etag(self) -> str | None:
-        """Hash of the file as last loaded; ``None`` if it cannot be read."""
+        """Hash of the file on disk; ``None`` only if it cannot be read at all.
+
+        A file that no longer parses still has a hash: that is exactly when
+        ``If-Match`` must keep a stale form from overwriting it.
+        """
         try:
             self.config()
         except ConfigError:
-            return None
+            return read_config_etag(self.config_path)
         return self._config_etag
 
     def invalidate_config(self) -> None:
@@ -94,13 +109,27 @@ class AppState:
     # -- plex -------------------------------------------------------------
 
     async def plex(self):
-        """A connected ``PlexServer``. Raises :class:`PlexConnectionError`."""
+        """A connected ``PlexServer``. Raises :class:`PlexConnectionError`.
+
+        The connection is kept for as long as it answers; the TTL only bounds
+        how often it is re-checked, so /health polling does not rebuild it.
+        """
         async with self._plex_lock:
-            fresh = time.time() - self._link.checked_at < self._plex_ttl
-            if self._plex is not None and fresh:
-                return self._plex
-            if self._plex is None and fresh and self._link.error:
-                raise PlexConnectionError(self._link.error)
+            now = time.time()
+            if now - self._link.checked_at < self._plex_ttl:
+                if self._plex is not None:
+                    return self._plex
+                raise PlexConnectionError(self._link.error or "Plex is unreachable.")
+
+            if self._plex is not None:
+                try:
+                    await asyncio.to_thread(plex_client.ping, self._plex)
+                except PlexConnectionError as exc:
+                    log.warning("Plex connection lost (%s); reconnecting", exc)
+                    self._drop_plex()
+                else:
+                    self._link = self._link_for(self._plex, now)
+                    return self._plex
 
             try:
                 settings = self.config().plex
@@ -111,20 +140,29 @@ class AppState:
                 raise PlexConnectionError(str(exc)) from exc
 
             self._plex = server
-            self._link = PlexLink(
-                True,
-                server_name=getattr(server, "friendlyName", None),
-                version=getattr(server, "version", None),
-                checked_at=time.time(),
-            )
+            self._link = self._link_for(server, time.time())
             return server
+
+    @staticmethod
+    def _link_for(server, checked_at: float) -> PlexLink:
+        return PlexLink(
+            True,
+            server_name=getattr(server, "friendlyName", None),
+            version=getattr(server, "version", None),
+            checked_at=checked_at,
+        )
+
+    def _drop_plex(self) -> None:
+        session = getattr(self._plex, "_session", None)
+        if session is not None:
+            with contextlib.suppress(Exception):
+                session.close()
+        self._plex = None
 
     async def plex_link(self) -> PlexLink:
         """Connection status without raising."""
-        try:
+        with contextlib.suppress(PlexConnectionError):
             await self.plex()
-        except PlexConnectionError:
-            pass
         return self._link
 
     # -- library items ----------------------------------------------------
@@ -135,10 +173,16 @@ class AppState:
         The browser filters on things Plex does not know (our cache status,
         bindings), so it needs the whole list; reading it once per minute is
         a handful of paged requests and keeps searching and paging instant.
+        One lock per library: a cold read of a large section must not stall
+        requests for every other library.
         """
         key = library.casefold()
-        async with self._items_lock:
-            cached = self._items.get(key)
+        cached = self._items.get(key)
+        if cached and not refresh and time.time() - cached[0] < self.items_ttl_s:
+            return cached[1]
+        lock = self._item_locks.setdefault(key, asyncio.Lock())
+        async with lock:
+            cached = self._items.get(key)  # another request may have filled it meanwhile
             if cached and not refresh and time.time() - cached[0] < self.items_ttl_s:
                 return cached[1]
             server = await self.plex()
@@ -152,3 +196,7 @@ class AppState:
             self._items.clear()
         else:
             self._items.pop(library.casefold(), None)
+
+    def _after_job(self, job: Job) -> None:
+        # The job wrote tags: whatever the browser cached for that library is stale.
+        self.forget_items(job.library)

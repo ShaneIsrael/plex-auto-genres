@@ -27,7 +27,11 @@ class FakePlexItem:
         return self
 
     def rate(self, rating=None):
-        # Mirrors plexapi's own validation, which v1 tripped over.
+        # Mirrors plexapi's own validation, which v1 tripped over: None
+        # clears the rating (-1 on the wire), anything else must be 0-10.
+        if rating is None:
+            self.ratings.append(-1.0)
+            return self
         if not isinstance(rating, (int, float)) or not 0 <= rating <= 10:
             raise ValueError("Rating must be between 0 to 10.")
         self.ratings.append(float(rating))

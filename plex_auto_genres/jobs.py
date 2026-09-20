@@ -13,12 +13,13 @@ join the two.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import time
 import uuid
 from collections import deque
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterable
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Literal
@@ -110,6 +111,10 @@ class Job:
         }
 
 
+#: ``list`` the builtin, named before the class defines a method called ``list``.
+JobList = list[Job]
+
+
 class JobManager:
     """Queue, run, watch and cancel jobs."""
 
@@ -121,11 +126,13 @@ class JobManager:
         *,
         posters_dir: str | Path = "posters",
         history: int = 50,
+        on_finish: Callable[[Job], None] | None = None,
     ) -> None:
         self.store = store
         self._config = config_provider
         self._plex = plex_provider
         self._posters_dir = posters_dir
+        self._on_finish = on_finish
         self._queue: asyncio.Queue[Job] = asyncio.Queue()
         self._active: dict[str, Job] = {}
         self._recent: deque[Job] = deque(maxlen=history)
@@ -143,10 +150,8 @@ class JobManager:
         if self._worker is None:
             return
         self._worker.cancel()
-        try:
+        with contextlib.suppress(asyncio.CancelledError, Exception):
             await self._worker
-        except (asyncio.CancelledError, Exception):
-            pass
         self._worker = None
 
     # -- queries ----------------------------------------------------------
@@ -156,7 +161,7 @@ class JobManager:
             return self._active[job_id]
         return next((j for j in self._recent if j.job_id == job_id), None)
 
-    def list(self) -> list[Job]:
+    def list(self) -> JobList:
         """Active jobs in queue order, then recent ones newest first."""
         active = sorted(self._active.values(), key=lambda j: (j.status != "running", j.created_at))
         return [*active, *reversed(self._recent)]
@@ -165,36 +170,64 @@ class JobManager:
         key = library.casefold()
         return next((j for j in self._active.values() if j.library.casefold() == key), None)
 
+    def running_for(self, library: str) -> Job | None:
+        """The job currently executing this library, if it is this process's."""
+        job = self.active_for(library)
+        return job if job is not None and job.status == "running" else None
+
     def job_for_run(self, run_id: str) -> Job | None:
-        for job in (*self._active.values(), *self._recent):
-            if run_id in job.run_ids:
-                return job
-        return None
+        return self.jobs_by_run().get(run_id)
+
+    def jobs_by_run(self) -> dict[str, Job]:
+        """``run_id -> job`` over everything remembered; build once per request."""
+        return {
+            run_id: job
+            for job in (*self._active.values(), *self._recent)
+            for run_id in job.run_ids
+        }
 
     # -- commands ---------------------------------------------------------
 
-    def enqueue(self, library: str, options: JobOptions = JobOptions()) -> Job:
+    def enqueue(self, library: str, options: JobOptions | None = None) -> Job:
         """Queue a job for one configured library."""
-        config = self._config()
-        run = config.find(library)
-        if run is None:
-            raise JobError(f"Library {library!r} is not configured.")
-        if self.active_for(run.library) is not None:
-            raise JobConflict(f"A job for {run.library!r} is already queued or running.")
-        job = Job(job_id=uuid.uuid4().hex[:12], library=run.library, options=options)
-        self._active[job.job_id] = job
-        self._queue.put_nowait(job)
-        log.info("Job %s queued for %s (%s)", job.job_id, job.library, options.source)
-        return job
+        return self.enqueue_many([library], options)[0]
 
-    def enqueue_all(self, options: JobOptions = JobOptions()) -> list[Job]:
-        """Queue every enabled library, skipping ones that already have a job."""
+    def enqueue_many(self, libraries: Iterable[str], options: JobOptions | None = None) -> JobList:
+        """Queue jobs for several libraries, all or nothing.
+
+        Every name is checked (configured, not already active, not listed
+        twice) before anything is queued, so a bad name in the middle of the
+        list cannot leave the earlier ones running.
+        """
+        options = options or JobOptions()
+        config = self._config()
+        runs: list[LibraryRun] = []
+        for library in libraries:
+            run = config.find(library)
+            if run is None:
+                raise JobError(f"Library {library!r} is not configured.")
+            if self.active_for(run.library) is not None or any(
+                r.library == run.library for r in runs
+            ):
+                raise JobConflict(f"A job for {run.library!r} is already queued or running.")
+            runs.append(run)
+
         jobs: list[Job] = []
-        for run in self._config().libraries:
-            if not run.enabled or self.active_for(run.library) is not None:
-                continue
-            jobs.append(self.enqueue(run.library, options))
+        for run in runs:
+            job = Job(job_id=uuid.uuid4().hex[:12], library=run.library, options=options)
+            self._active[job.job_id] = job
+            self._queue.put_nowait(job)
+            log.info("Job %s queued for %s (%s)", job.job_id, job.library, options.source)
+            jobs.append(job)
         return jobs
+
+    def enqueue_all(self, options: JobOptions | None = None) -> JobList:
+        """Queue every enabled library, skipping ones that already have a job."""
+        names = [
+            run.library for run in self._config().libraries
+            if run.enabled and self.active_for(run.library) is None
+        ]
+        return self.enqueue_many(names, options) if names else []
 
     async def cancel(self, job_id: str) -> Job | None:
         """Cancel a queued or running job. Returns the job, or None if unknown."""
@@ -202,8 +235,7 @@ class JobManager:
         if job is None:
             return None
         if job.status == "queued":
-            job.cancel_requested = True
-            self._finish(job, "cancelled")
+            self._finish(job, "cancelled")  # the worker skips anything not queued
         elif job.status == "running" and job.task is not None:
             job.cancel_requested = True
             job.task.cancel()  # the worker does the bookkeeping
@@ -241,10 +273,8 @@ class JobManager:
                     return
                 yield message
         finally:
-            try:
+            with contextlib.suppress(ValueError):
                 job.subscribers.remove(queue)
-            except ValueError:
-                pass
 
     # -- internals --------------------------------------------------------
 
@@ -288,35 +318,41 @@ class JobManager:
         )
 
     def _finish(self, job: Job, status: JobStatus) -> None:
-        if status == "cancelled":
+        if status in ("cancelled", "failed"):
             self._collect_abandoned_reports(job)
         job.status = status
         job.finished_at = time.time()
-        self.emit(job, "end", self._end_payload(job))
+        # The terminal messages are the one thing a slow subscriber must not
+        # lose: without the sentinel its stream never ends. Make room.
+        payload = self._end_payload(job)
         for queue in job.subscribers:
-            try:
-                queue.put_nowait(None)
-            except asyncio.QueueFull:
-                pass
+            _push(queue, ("end", payload), force=True)
+            _push(queue, None, force=True)
         self._active.pop(job.job_id, None)
         self._recent.append(job)
         log.info("Job %s %s (%s)", job.job_id, status, job.library)
+        if self._on_finish is not None:
+            self._on_finish(job)
 
     def _collect_abandoned_reports(self, job: Job) -> None:
-        """Pick up the report of a run the pipeline closed while being cancelled.
+        """Pick up the report of a run the pipeline closed on its way out.
 
-        The pipeline writes that report to the store before the cancellation
-        propagates, but the runner's ``report`` callback never fires because
-        the action raised instead of returning. Read it back so the job's
-        snapshot and ``end`` event agree with the run row.
+        The pipeline writes that report to the store before a cancellation or
+        error propagates, but the runner's ``report`` callback never fires
+        because the action raised instead of returning. Read every run this
+        job opened back from the store -- including one interrupted before
+        it announced itself -- so the snapshot and ``end`` event agree with
+        the run rows.
         """
+        since = job.started_at if job.started_at is not None else job.created_at
         known = {r.get("run_id") for r in job.reports}
-        for run_id in job.run_ids:
-            if run_id in known:
-                continue
-            row = self.store.get_run(run_id)
-            if row is not None and row["report"]:
+        for row in self.store.runs_started_after(job.library, since):
+            run_id = row["run_id"]
+            if run_id not in job.run_ids:
+                job.run_ids.append(run_id)
+            if run_id not in known and row["report"]:
                 job.reports.append(json.loads(row["report"]))
+                known.add(run_id)
 
     @staticmethod
     def _end_payload(job: Job) -> dict[str, Any]:
@@ -331,12 +367,22 @@ class JobManager:
     def emit(self, job: Job, event: str, data: dict[str, Any]) -> None:
         """Fan an event out to every subscriber of ``job``."""
         for queue in job.subscribers:
-            try:
-                queue.put_nowait((event, data))
-            except asyncio.QueueFull:
-                # A subscriber that cannot keep up loses events; it still gets
-                # the final report because that goes through _finish.
-                pass
+            # A subscriber that cannot keep up loses progress events; the
+            # terminal ones are forced through by _finish.
+            _push(queue, (event, data), force=False)
+
+
+def _push(queue: asyncio.Queue, message: Any, *, force: bool) -> None:
+    """Enqueue without blocking. ``force`` evicts the oldest entry to make room."""
+    try:
+        queue.put_nowait(message)
+    except asyncio.QueueFull:
+        if not force:
+            return
+        with contextlib.suppress(asyncio.QueueEmpty):
+            queue.get_nowait()
+        with contextlib.suppress(asyncio.QueueFull):
+            queue.put_nowait(message)
 
 
 class _JobObserver:

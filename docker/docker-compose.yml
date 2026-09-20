@@ -1,7 +1,8 @@
 services:
   plex-auto-genres:
     container_name: plex-auto-genres
-    image: ghcr.io/dim145/plex-auto-genres:latest
+    # CI publishes to ghcr.io/<github-user>/plex-auto-genres; put yours here.
+    image: ghcr.io/OWNER/plex-auto-genres:latest
     restart: unless-stopped
     ports:
       - "8095:8095"          # web UI + API; drop this block for a headless install
@@ -16,7 +17,8 @@ services:
       PLEX_COLLECTION_PREFIX: ""
       # --- Metadata providers
       TMDB_API_KEY: "${TMDB_API_KEY:-}"   # not needed for anime-only setups
-      # --- Mode: "serve" (web UI + scheduler) or "schedule" (headless, as v1)
+      # --- Mode: "serve" (web UI + scheduler) or "schedule" (headless, as v1).
+      # Unset, the image picks serve when a login is configured, else schedule.
       PAG_MODE: "serve"
       PAG_WEB_PORT: "8095"
       # --- Login. Required in serve mode: the container listens on every

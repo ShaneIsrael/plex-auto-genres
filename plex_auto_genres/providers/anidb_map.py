@@ -11,6 +11,7 @@ condensed map is cached in the store for a week.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 
@@ -34,16 +35,23 @@ class AniDbMapper:
         self._enabled = enabled
         self._map: dict[str, dict[str, str]] | None = None
         self._failed = False
+        # Single-flight: with N concurrent lookups on a cold cache, only the
+        # first downloads the table; the rest wait for it.
+        self._loading = asyncio.Lock()
 
     async def _load(self) -> dict[str, dict[str, str]]:
         if self._map is not None:
             return self._map
+        async with self._loading:
+            if self._map is None:
+                self._map = await self._fetch()
+            return self._map
 
+    async def _fetch(self) -> dict[str, dict[str, str]]:
         cached = self._store.kv_get(CACHE_KEY)
         if cached:
             try:
-                self._map = json.loads(cached)
-                return self._map
+                return json.loads(cached)
             except json.JSONDecodeError:
                 log.debug("cached AniDB mapping was corrupt, refetching")
 
@@ -68,7 +76,6 @@ class AniDbMapper:
 
         self._store.kv_set(CACHE_KEY, json.dumps(condensed, separators=(",", ":")), CACHE_TTL_S)
         log.info("AniDB mapping ready: %d entries", len(condensed))
-        self._map = condensed
         return condensed
 
     async def expand(self, ids: list[ExternalId]) -> list[ExternalId]:

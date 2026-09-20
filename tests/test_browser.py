@@ -7,7 +7,7 @@ import pytest
 import respx
 from fastapi.testclient import TestClient
 
-from plex_auto_genres.models import ExternalId, MediaType
+from plex_auto_genres.models import MediaType
 from plex_auto_genres.providers.anilist import AniListProvider
 from plex_auto_genres.providers.base import HttpTransport, LookupRequest, rank_candidates, short
 from plex_auto_genres.providers.jikan import JikanProvider
@@ -277,3 +277,33 @@ def test_thumb_proxy_fetches_with_the_token_and_caches(browser):
     assert response.headers["content-type"] == "image/png"
     assert "max-age=86400" in response.headers["cache-control"]
     assert route.calls[0].request.url.params["X-Plex-Token"] == "t"
+
+
+# -- review regressions ---------------------------------------------------------
+
+
+def test_bindings_are_addressed_by_any_spelling_of_the_library(browser):
+    c, _, store = browser
+    store.set_binding("Animes", "mal://1", "mal", "1")
+    assert c.get("/api/v1/bindings", params={"library": "animes"}).json()[0]["media_key"] == "mal://1"
+    assert c.delete("/api/v1/bindings",
+                    params={"library": "ANIMES", "media_key": "mal://1"}).status_code == 200
+    assert store.list_bindings("Animes") == []
+
+
+def test_refresh_drops_the_item_cache(browser):
+    c, server, _ = browser
+    assert c.get("/api/v1/libraries/Animes/items").json()["total"] == 3
+    server._section.all().append(FakePlexItem(4, "New Arrival", 2020))
+    assert c.get("/api/v1/libraries/Animes/items").json()["total"] == 3   # the minute cache
+    assert c.post("/api/v1/libraries/Animes/refresh").json() == {"refreshed": True}
+    assert c.get("/api/v1/libraries/Animes/items").json()["total"] == 4
+    assert c.post("/api/v1/libraries/Nope/refresh").status_code == 404
+
+
+def test_match_provenance_comes_from_the_run_that_resolved_the_item(browser):
+    c, _, store = browser
+    store.record_success("Animes", "mal://1", fingerprint="f", title="One", year=2001, rating_key=1,
+                         genres=["Action"], provider="jikan", provider_id="1", source="search")
+    by_title = {i["title"]: i for i in c.get("/api/v1/libraries/Animes/items").json()["items"]}
+    assert by_title["One"]["match"] == "search", "what happened, not what the GUID suggests"

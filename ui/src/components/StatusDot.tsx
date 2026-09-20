@@ -30,13 +30,3 @@ export function StatusDot({ tone, label, className = "" }: { tone: Tone; label: 
     </span>
   );
 }
-
-export const RUN_STATUS_LABEL: Record<RunStatus, string> = {
-  running: "running",
-  interrupted: "interrupted",
-  ok: "ok",
-  partial: "partial",
-  failed: "failed",
-  undone: "undone",
-  cancelled: "cancelled",
-};

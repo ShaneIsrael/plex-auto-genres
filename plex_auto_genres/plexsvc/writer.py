@@ -18,9 +18,11 @@ Every write also records a before/after snapshot so a run can be undone.
 
 from __future__ import annotations
 
+import json
 import logging
-import os
+from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 from urllib.parse import quote
 
 from ..models import MediaItem, TagField
@@ -37,16 +39,19 @@ class WriteOutcome:
     after: list[str]
 
 
-def build_tag_edits(field: TagField, current: list[str], desired: list[str]) -> dict[str, object]:
+def build_tag_edits(
+    field: TagField, current: list[str], desired: list[str], *, locked: bool = True
+) -> dict[str, object]:
     """Build the Plex edit payload that makes ``field`` hold exactly ``desired``.
 
     Indexed ``field[i].tag.tag`` params set the full list -- that is why
     plexapi has to prepend existing tags when it wants to *add* one. Tags being
     dropped are additionally listed in ``field[].tag.tag-`` so the result is
     identical whether the server treats the indexed form as a replacement or
-    as a merge.
+    as a merge. ``locked`` keeps Plex's agent from overwriting the field on
+    its next refresh; an undo passes the lock state the item had before.
     """
-    edits: dict[str, object] = {f"{field.value}.locked": 1}
+    edits: dict[str, object] = {f"{field.value}.locked": int(locked)}
     for index, tag in enumerate(desired):
         edits[f"{field.value}[{index}].tag.tag"] = tag
 
@@ -125,13 +130,15 @@ class PlexWriter:
         if not self.dry_run:
             edits = build_tag_edits(field, current, desired)
             # One PUT for the whole set, however many tags it holds.
-            item.handle.edit(**edits)  # type: ignore[union-attr]
+            item.handle.edit(**edits)  # type: ignore[attr-defined]
             self.requests += 1
             self._store.add_snapshot(
                 self._run_id, self._library, item.rating_key, item.title,
                 field.value, current, desired,
+                locked_before=field.value in item.locked_fields,
             )
             # Keep the in-memory item consistent for any later write.
+            item.locked_fields.add(field.value)
             if field is TagField.GENRE:
                 item.current_genres = list(desired)
             else:
@@ -151,24 +158,31 @@ class PlexWriter:
         if not 0.0 <= value <= 10.0:
             log.debug("Skipping out-of-range score %s for %s", value, item.title)
             return False
+        current = getattr(item.handle, "userRating", None)
+        if isinstance(current, (int, float)) and abs(float(current) - value) < 0.05:
+            return False  # already there; v1 re-sent every rating on every run
         if self.dry_run:
             return True
-        item.handle.rate(value)  # type: ignore[union-attr]
+        item.handle.rate(value)  # type: ignore[attr-defined]
         self.requests += 1
+        # A rating is as much the user's data as a tag: keep the old one so
+        # the run can be undone.
+        self._store.add_snapshot(
+            self._run_id, self._library, item.rating_key, item.title, "rating",
+            [] if current is None else [str(current)], [str(value)],
+        )
         return True
 
 
 def undo_run(server, store: Store, run_id: str, *, dry_run: bool = False) -> tuple[int, int]:
-    """Restore the tag values a previous run overwrote.
+    """Restore the tags, ratings and sort titles a previous run overwrote.
 
-    Returns ``(restored, skipped)``. Items whose tags changed since the run are
-    still restored -- the snapshot is the authoritative "before" state.
+    Returns ``(restored, skipped)``. Items whose values changed since the run
+    are still restored -- the snapshot is the authoritative "before" state.
     """
     snapshots = store.snapshots_for(run_id)
     restored = skipped = 0
     for snap in snapshots:
-        import json
-
         before = json.loads(snap["before"])
         after = json.loads(snap["after"])
         try:
@@ -178,12 +192,25 @@ def undo_run(server, store: Store, run_id: str, *, dry_run: bool = False) -> tup
             skipped += 1
             continue
         if not dry_run:
-            field = TagField(snap["field"])
-            item.edit(**build_tag_edits(field, after, before))
+            _restore(item, snap["field"], before, after, snap["locked_before"])
         restored += 1
     if not dry_run and restored:
         store.mark_undone(run_id)
     return restored, skipped
+
+
+def _restore(item, field_name: str, before: list, after: list, locked_before) -> None:
+    """Put one snapshotted value back, including the lock state it had."""
+    if field_name == "rating":
+        item.rate(float(before[0]) if before else None)  # None = unrated
+        return
+    if field_name == "titleSort":
+        # The sort title goes back and is unlocked so the agent owns it again.
+        item.edit(**{"titleSort.value": before[0] if before else "", "titleSort.locked": 0})
+        return
+    # Rows written before the lock state was recorded stay locked, as they were left.
+    locked = True if locked_before is None else bool(locked_before)
+    item.edit(**build_tag_edits(TagField(field_name), after, before, locked=locked))
 
 
 def upload_posters(
@@ -194,7 +221,8 @@ def upload_posters(
     dry_run: bool = False,
 ) -> tuple[int, list[str]]:
     """Upload ``<posters_dir>/<collection-name>.png`` for each collection."""
-    if not os.path.isdir(posters_dir):
+    root = Path(posters_dir)
+    if not root.is_dir():
         raise FileNotFoundError(f"Poster directory not found: {posters_dir}")
 
     uploaded = 0
@@ -203,44 +231,55 @@ def upload_posters(
         title = collection.title
         if prefix and title.startswith(prefix):
             title = title[len(prefix):]
-        path = os.path.join(posters_dir, title.lower().replace(" ", "-") + ".png")
-        if not os.path.isfile(path):
+        path = root / (title.lower().replace(" ", "-") + ".png")
+        if not path.is_file():
             missing.append(title)
             continue
         if not dry_run:
-            collection.uploadPoster(filepath=path)
+            collection.uploadPoster(filepath=str(path))
         uploaded += 1
     return uploaded, missing
 
 
+#: Called with ``(collection, previous sort title, new sort title)`` after a write.
+SortRecorder = Callable[[object, str, str], None]
+
+
 def sort_collections(
     section,
-    prefix: str,
+    sort_prefix: str,
     names: list[str],
     *,
+    collection_prefix: str = "",
     dry_run: bool = False,
+    record: SortRecorder | None = None,
 ) -> tuple[int, list[str]]:
     """Prefix the sort title of the named collections.
 
-    v1 issued ``section(library).collections(title=...)`` once per name, which
-    refetched the whole section list every time. Here the collections are read
-    once and matched in memory.
+    Names are matched as written and with ``collection_prefix`` in front,
+    since that is how this tool names the collections it creates. v1 issued
+    ``section(library).collections(title=...)`` once per name, which refetched
+    the whole section list every time; here the collections are read once and
+    matched in memory.
     """
     existing = {c.title.casefold(): c for c in section.collections()}
     updated = 0
     not_found: list[str] = []
     for name in names:
-        collection = existing.get(name.strip().casefold())
-        if collection is None:
-            # Also try with the collection prefix already applied.
-            collection = existing.get(f"{prefix}{name}".strip().casefold())
+        wanted = name.strip()
+        collection = existing.get(wanted.casefold()) or existing.get(
+            f"{collection_prefix}{wanted}".casefold()
+        )
         if collection is None:
             not_found.append(name)
             continue
-        sort_title = f"{prefix}{collection.title}"
-        if collection.titleSort == sort_title:
+        sort_title = f"{sort_prefix}{collection.title}"
+        current = getattr(collection, "titleSort", None) or ""
+        if current == sort_title:
             continue
         if not dry_run:
             collection.edit(**{"titleSort.value": sort_title, "titleSort.locked": 1})
+            if record is not None:
+                record(collection, current, sort_title)
         updated += 1
     return updated, not_found

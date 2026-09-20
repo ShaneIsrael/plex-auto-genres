@@ -10,8 +10,9 @@ import { PageHeader, Panel } from "../components/Panel";
 import { RunTape, TapeLegend } from "../components/RunTape";
 import { Skeleton } from "../components/Skeleton";
 import { Stat } from "../components/Stat";
-import { RUN_STATUS_LABEL, StatusDot, toneForLevel, toneForRun } from "../components/StatusDot";
+import { StatusDot, toneForLevel, toneForRun } from "../components/StatusDot";
 import { int, relTime } from "../lib/format";
+import { reveal } from "../lib/reveal";
 
 function latestTagRuns(runs: RunView[]): Map<string, RunView> {
   const latest = new Map<string, RunView>();
@@ -91,7 +92,7 @@ export default function Overview() {
       />
 
       {activeJobs.length > 0 && (
-        <Panel className="reveal" style={{ "--i": 1 } as React.CSSProperties} eyebrow="Jobs" title={`${activeJobs.length} in the queue`}>
+        <Panel {...reveal(1)} eyebrow="Jobs" title={`${activeJobs.length} in the queue`}>
           <div className="jobs">
             {activeJobs.map((job) => (
               <div key={job.job_id} className="job">
@@ -125,13 +126,13 @@ export default function Overview() {
       )}
 
       <div className="stat-grid">
-        <Stat index={1} label="Tagged, last run" value={runs.isPending ? null : taggedLastRun} tone="amber" sub="across enabled libraries" />
-        <Stat index={2} label="Libraries" value={libraries.isPending ? null : configured.length} sub={`${enabled.length} enabled`} />
-        <Stat index={3} label="Failures pending" value={libraries.isPending ? null : pendingFailures} tone={pendingFailures ? "fail" : undefined} sub="retried with backoff" />
-        <Stat index={4} label="Runs, 7 days" value={runs.isPending ? null : runsThisWeek} tone="teal" />
+        <Stat index={2} label="Tagged, last run" value={runs.isPending ? null : taggedLastRun} tone="amber" sub="across enabled libraries" />
+        <Stat index={3} label="Libraries" value={libraries.isPending ? null : configured.length} sub={`${enabled.length} enabled`} />
+        <Stat index={4} label="Failures pending" value={libraries.isPending ? null : pendingFailures} tone={pendingFailures ? "fail" : undefined} sub="retried with backoff" />
+        <Stat index={5} label="Runs, 7 days" value={runs.isPending ? null : runsThisWeek} tone="teal" />
       </div>
 
-      <Panel className="reveal" style={{ "--i": 5 } as React.CSSProperties} eyebrow="Tape" title="Last forty runs" aside={<TapeLegend />}>
+      <Panel {...reveal(6)} eyebrow="Tape" title="Last forty runs" aside={<TapeLegend />}>
         {runs.isPending ? (
           <Skeleton height={36} />
         ) : runs.isError ? (
@@ -146,7 +147,7 @@ export default function Overview() {
       </Panel>
 
       <div className="two-col">
-        <Panel className="reveal" style={{ "--i": 6 } as React.CSSProperties} eyebrow="Libraries" title="Configured" aside={<Link to="/libraries">All libraries →</Link>}>
+        <Panel {...reveal(7)} eyebrow="Libraries" title="Configured" aside={<Link to="/libraries">All libraries →</Link>}>
           {libraries.isPending ? (
             <div style={{ display: "grid", gap: 10 }}>
               <Skeleton /><Skeleton /><Skeleton width="70%" />
@@ -167,7 +168,7 @@ export default function Overview() {
         </Panel>
 
         <div className="stack">
-          <Panel className="reveal" style={{ "--i": 7 } as React.CSSProperties} eyebrow="Doctor" title="Checks" aside={<Link to="/config#doctor">Details →</Link>}>
+          <Panel {...reveal(8)} eyebrow="Doctor" title="Checks" aside={<Link to="/config#doctor">Details →</Link>}>
             {doctor.isPending ? (
               <div style={{ display: "grid", gap: 10 }}><Skeleton /><Skeleton /><Skeleton width="60%" /></div>
             ) : doctor.isError ? (
@@ -184,9 +185,11 @@ export default function Overview() {
             )}
           </Panel>
 
-          <Panel className="reveal" style={{ "--i": 8 } as React.CSSProperties} eyebrow="Recent" title="Runs" aside={<Link to="/runs">History →</Link>}>
+          <Panel {...reveal(9)} eyebrow="Recent" title="Runs" aside={<Link to="/runs">History →</Link>}>
             {runs.isPending ? (
               <div style={{ display: "grid", gap: 10 }}><Skeleton /><Skeleton /><Skeleton width="80%" /></div>
+            ) : runs.isError ? (
+              <ErrorBlock error={runs.error} onRetry={() => runs.refetch()} />
             ) : allRuns.length === 0 ? (
               <p className="faint">—</p>
             ) : (
@@ -197,7 +200,7 @@ export default function Overview() {
                       <StatusDot tone={toneForRun(run.status)} label={run.library} />
                       <span className="faint mono">{run.action}</span>
                     </Link>
-                    <span className="list__meta mono faint" title={RUN_STATUS_LABEL[run.status]}>{relTime(run.started_at)}</span>
+                    <span className="list__meta mono faint" title={run.status}>{relTime(run.started_at)}</span>
                   </li>
                 ))}
               </ul>

@@ -20,6 +20,7 @@ from __future__ import annotations
 import contextlib
 import hashlib
 import json
+import logging
 import os
 import shutil
 import tempfile
@@ -30,6 +31,8 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 
 from .errors import ConfigError
 from .models import MediaType
+
+log = logging.getLogger(__name__)
 
 CONFIG_VERSION = 2
 
@@ -62,12 +65,19 @@ class GenreRules(BaseModel):
     sorted_prefix: str = Field(
         default="",
         alias="sortedPrefix",
-        description="Character prepended to a collection's sort title by --sort.",
+        description=(
+            "Character prepended to a collection's sort title by --sort. "
+            "In a library override, empty means 'inherit the type default'."
+        ),
     )
     sorted_collections: list[str] = Field(
         default_factory=list,
         alias="sortedCollections",
-        description="Collections that --sort should prefix.",
+        description=(
+            "Collections that --sort should prefix. In a library override, an "
+            "empty list means 'inherit the type default'; to stop sorting one "
+            "library, set its sortCollections to false."
+        ),
     )
     max_genres: int | None = Field(
         default=None,
@@ -94,7 +104,13 @@ class GenreRules(BaseModel):
         return [v.strip() for v in value if v and v.strip()]
 
     def merge(self, override: "GenreRules | None") -> "GenreRules":
-        """Layer a per-library override on top of these type-level defaults."""
+        """Layer a per-library override on top of these type-level defaults.
+
+        ``ignore`` and ``replace`` are additive. ``sortedPrefix`` and
+        ``sortedCollections`` replace the default when set, and an empty value
+        means "inherit" -- so a library cannot opt out of inherited sorting
+        through its overrides; set ``sortCollections: false`` on it instead.
+        """
         if override is None:
             return self
         return GenreRules(
@@ -353,7 +369,18 @@ def migrate_v1(raw: dict[str, Any]) -> dict[str, Any]:
         }
 
     libraries: list[dict[str, Any]] = []
+    known_types = {m.value for m in MediaType}
     for entry in (raw.get("automation_settings") or {}).get("run") or []:
+        # v1 spawned one subprocess per entry, so a malformed one (the example
+        # config ships a documentation entry with a made-up type) only failed
+        # itself. Skip it here rather than refuse the whole file.
+        usable = (
+            isinstance(entry, dict) and entry.get("library") and entry.get("type") in known_types
+        )
+        if not usable:
+            log.warning("Skipping v1 run entry %r: no library name or unknown type",
+                        entry.get("library") if isinstance(entry, dict) else entry)
+            continue
         migrated = {
             "library": entry["library"],
             "type": entry["type"],
@@ -390,10 +417,23 @@ def strip_comments(value: Any) -> Any:
     return value
 
 
-def load_config(path: str | Path = "config/config.json", *, use_env: bool = True) -> AppConfig:
-    """Read, migrate if needed, and validate the configuration file."""
+def load_config(
+    path: str | Path = "config/config.json", *, use_env: bool = True, missing_ok: bool = False
+) -> AppConfig:
+    """Read, migrate if needed, and validate the configuration file.
+
+    With ``missing_ok`` an absent file yields an empty config (connection
+    settings from the environment, no libraries), which is what ad-hoc
+    ``run --library X --type T`` and the binding commands need; v1 never
+    required a config file for those.
+    """
     path = Path(path)
     if not path.is_file():
+        if missing_ok:
+            return AppConfig.model_validate({
+                "plex": _plex_from_env().model_dump(),
+                "providers": _providers_from_env().model_dump(),
+            })
         raise ConfigError(
             f"No configuration file at {path.resolve()}.\n"
             f"Copy config/config.json.example to {path} and edit it."
@@ -552,6 +592,10 @@ def write_config(path: str | Path, document: dict[str, Any]) -> tuple[str, Path 
     with the v1 original preserved in the backup.
     """
     path = Path(path)
+    if path.is_symlink():
+        # Write through the link: replacing the link itself with a regular
+        # file would silently detach the install from the file it points at.
+        path = path.resolve()
     body = {k: v for k, v in strip_comments(document).items() if k in DOCUMENT_KEYS}
 
     old_raw: Any = {}
@@ -574,7 +618,7 @@ def write_config(path: str | Path, document: dict[str, Any]) -> tuple[str, Path 
             handle.write(text)
             handle.flush()
             os.fsync(handle.fileno())
-        os.replace(tmp, path)
+        tmp.replace(path)
     except BaseException:
         with contextlib.suppress(OSError):
             tmp.unlink()

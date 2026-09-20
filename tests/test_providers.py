@@ -245,3 +245,60 @@ def test_pick_best_falls_back_to_the_first_when_nothing_matches():
 
 def test_pick_best_returns_none_for_no_candidates():
     assert pick_best([], "x", None) is None
+
+
+# -- review regressions ---------------------------------------------------------
+
+
+@respx.mock
+async def test_auth_failures_become_provider_auth_errors():
+    from plex_auto_genres.errors import ProviderAuthError
+
+    respx.get("https://api.jikan.moe/v4/anime/1").mock(return_value=httpx.Response(401))
+    with pytest.raises(ProviderAuthError):
+        await JikanProvider(transport("jikan")).fetch_by_id(
+            ExternalId("mal", "1"), LookupRequest("x", None, MediaType.ANIME)
+        )
+
+
+@respx.mock
+async def test_other_client_errors_are_provider_errors_not_httpx_ones():
+    from plex_auto_genres.errors import ProviderError
+
+    respx.get("https://api.jikan.moe/v4/anime/1").mock(return_value=httpx.Response(418))
+    with pytest.raises(ProviderError):
+        await JikanProvider(transport("jikan")).fetch_by_id(
+            ExternalId("mal", "1"), LookupRequest("x", None, MediaType.ANIME)
+        )
+
+
+@respx.mock
+async def test_results_say_how_they_matched():
+    respx.get("https://api.jikan.moe/v4/anime/1").mock(return_value=httpx.Response(200, json={
+        "data": {"mal_id": 1, "title": "X", "genres": [{"name": "Action"}]}}))
+    result = await JikanProvider(transport("jikan")).resolve(
+        LookupRequest("X", None, MediaType.ANIME, external_ids=[ExternalId("mal", "1")])
+    )
+    assert result.matched_by == "guid"
+
+
+async def test_the_rate_limiter_is_shared_per_provider_within_a_process():
+    from plex_auto_genres.ratelimit import JIKAN_LIMITS, TMDB_LIMITS, shared_limiter
+
+    assert shared_limiter("jikan", JIKAN_LIMITS) is shared_limiter("jikan", JIKAN_LIMITS)
+    assert shared_limiter("jikan", JIKAN_LIMITS) is not shared_limiter("tmdb", TMDB_LIMITS)
+
+
+@respx.mock
+async def test_the_anidb_mapping_is_downloaded_once_under_concurrency(store):
+    import asyncio
+
+    from plex_auto_genres.providers.anidb_map import MAPPING_URL, AniDbMapper
+
+    route = respx.get(MAPPING_URL).mock(
+        return_value=httpx.Response(200, json=[{"anidb_id": 1, "mal_id": 20}])
+    )
+    mapper = AniDbMapper(store)
+    results = await asyncio.gather(*(mapper.expand([ExternalId("anidb", "1")]) for _ in range(5)))
+    assert route.call_count == 1
+    assert all(ExternalId("mal", "20") in ids for ids in results)

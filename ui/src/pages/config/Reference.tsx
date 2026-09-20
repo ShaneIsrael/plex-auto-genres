@@ -3,6 +3,7 @@ import { useDoctor } from "../../api/client";
 import { ErrorBlock } from "../../components/Empty";
 import { Panel } from "../../components/Panel";
 import { StatusDot, toneForLevel } from "../../components/StatusDot";
+import { reveal } from "../../lib/reveal";
 
 function Presence({ set, legacy = false }: { set: boolean; legacy?: boolean }) {
   if (set) return <StatusDot tone="ok" label="set" />;
@@ -12,7 +13,7 @@ function Presence({ set, legacy = false }: { set: boolean; legacy?: boolean }) {
 /** Environment and doctor: read-only reference below the editor. */
 export function Environment({ config, index }: { config: ConfigView; index: number }) {
   return (
-    <Panel className="reveal" style={{ "--i": index } as React.CSSProperties} eyebrow="Environment" title="Secrets and connection" aside={<span className="faint mono">read-only</span>}>
+    <Panel {...reveal(index)} eyebrow="Environment" title="Secrets and connection" aside={<span className="faint mono">read-only</span>}>
       <p className="field__help" style={{ marginBottom: 12 }}>
         Credentials come from the environment (<code>.env</code> or the container), never from <code>config.json</code>, and are not edited here.
       </p>
@@ -34,7 +35,7 @@ export function Environment({ config, index }: { config: ConfigView; index: numb
 export function Doctor({ index }: { index: number }) {
   const doctor = useDoctor();
   return (
-    <Panel className="reveal" style={{ "--i": index } as React.CSSProperties} eyebrow="Doctor" title="Checks">
+    <Panel {...reveal(index)} eyebrow="Doctor" title="Checks">
       <span id="doctor" />
       {doctor.isPending ? (
         <p className="faint">Checking…</p>

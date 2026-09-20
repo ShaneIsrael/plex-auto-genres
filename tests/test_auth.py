@@ -234,3 +234,63 @@ def test_sse_streams_through_the_middleware(locked, monkeypatch):
                 if line == "event: end":
                     break
     assert "snapshot" in seen and seen[-1] == "end"
+
+
+# -- review regressions ---------------------------------------------------------
+
+
+def test_a_hostile_cookie_is_a_401_not_a_500(locked):
+    # httpx refuses to *send* non-ASCII header text, so hand it the raw bytes a
+    # browser (or any other client on the same host) would put on the wire.
+    raw = ("%s=v1.9999999999.\u00e7\u00e7" % COOKIE).encode("latin-1")
+    assert locked.get("/api/v1/libraries", headers={b"cookie": raw}).status_code == 401
+    assert locked.get("/api/v1/auth/status", headers={b"cookie": raw}).json()["authenticated"] is False
+
+
+def test_forwarded_for_is_ignored_unless_the_peer_is_a_trusted_proxy(locked):
+    for i in range(5):
+        locked.post("/api/v1/auth/login", json={"password": "nope"},
+                    headers={"X-Forwarded-For": f"10.0.0.{i}"})
+    blocked = locked.post("/api/v1/auth/login", json={"password": "nope"},
+                          headers={"X-Forwarded-For": "10.0.0.99"})
+    assert blocked.status_code == 429, "a forged address does not buy a fresh budget"
+
+
+@pytest.fixture
+def proxied(tmp_path, config_file, monkeypatch):
+    monkeypatch.setenv("PLEX_BASE_URL", "http://plex:32400")
+    monkeypatch.setenv("PLEX_TOKEN", "t")
+    monkeypatch.setattr(state_module.plex_client, "connect", lambda s: FakePlex())
+    app = create_app(config_file, tmp_path / "state.db",
+                     auth=AuthSettings(password=PASSWORD, trusted_proxies=frozenset({"testclient"})))
+    with TestClient(app) as c:
+        yield c
+
+
+def test_a_trusted_proxy_s_forwarded_for_is_honoured(proxied):
+    for i in range(5):
+        assert proxied.post("/api/v1/auth/login", json={"password": "nope"},
+                            headers={"X-Forwarded-For": f"10.0.0.{i}"}).status_code == 401
+    # Behind a trusted proxy each reported client has its own budget.
+    assert proxied.post("/api/v1/auth/login", json={"password": "nope"},
+                        headers={"X-Forwarded-For": "10.0.0.99"}).status_code == 401
+    for _ in range(5):
+        proxied.post("/api/v1/auth/login", json={"password": "nope"},
+                     headers={"X-Forwarded-For": "10.0.0.99"})
+    assert proxied.post("/api/v1/auth/login", json={"password": "nope"},
+                        headers={"X-Forwarded-For": "10.0.0.99"}).status_code == 429
+
+
+def test_login_limiter_has_a_global_budget_and_bounded_memory():
+    limiter = LoginLimiter(limit=5, window_s=60, global_limit=6, max_clients=3)
+    for i in range(6):
+        limiter.record_failure(f"client-{i}")
+    assert limiter.blocked("someone-new"), "the global budget is spent"
+    assert len(limiter._failures) <= 3, "old buckets are evicted"  # pylint: disable=protected-access
+
+
+def test_settings_read_trusted_proxies(monkeypatch):
+    monkeypatch.setenv("PAG_WEB_TRUSTED_PROXIES", "10.0.0.1, 172.16.0.1")
+    assert AuthSettings.from_env().trusted_proxies == frozenset({"10.0.0.1", "172.16.0.1"})
+    monkeypatch.delenv("PAG_WEB_TRUSTED_PROXIES")
+    assert AuthSettings.from_env().trusted_proxies == frozenset()

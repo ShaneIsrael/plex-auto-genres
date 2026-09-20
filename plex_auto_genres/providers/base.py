@@ -7,16 +7,17 @@ import asyncio
 import logging
 import random
 from dataclasses import dataclass, field
+from typing import Any, TypeVar
 
 import httpx
 
-from ..errors import ProviderError, ProviderNotFound, ProviderRateLimited
+from ..errors import ProviderAuthError, ProviderError, ProviderNotFound, ProviderRateLimited
 from ..models import Candidate, ExternalId, MediaType, ProviderResult
 from ..ratelimit import CompositeLimiter
 
 log = logging.getLogger(__name__)
 
-USER_AGENT = "plex-auto-genres/2.0 (+https://github.com/Dim145/plex-auto-genres)"
+USER_AGENT = "plex-auto-genres/2.0"
 
 
 @dataclass(slots=True)
@@ -58,16 +59,19 @@ class HttpTransport:
         self._name = name
         self.request_count = 0
 
-    async def request(self, method: str, url: str, **kwargs: object) -> httpx.Response:
-        """Perform a rate-limited request, retrying transient failures."""
+    async def request(self, method: str, url: str, **kwargs: Any) -> httpx.Response:
+        """Perform a rate-limited request, retrying transient failures.
+
+        Every non-2xx outcome surfaces as a :class:`ProviderError` subclass,
+        never a raw ``httpx`` exception, so the pipeline's provider fallback
+        and its per-item failure handling see one error family.
+        """
         last_exc: Exception | None = None
         for attempt in range(1, self._max_attempts + 1):
             await self._limiter.acquire()
             try:
                 self.request_count += 1
-                response = await self._client.request(  # type: ignore[arg-type]
-                    method, url, **kwargs
-                )
+                response = await self._client.request(method, url, **kwargs)
             except (httpx.TransportError, httpx.TimeoutException) as exc:
                 last_exc = ProviderError(f"{self._name}: network error: {exc}")
                 await self._sleep_backoff(attempt)
@@ -90,21 +94,27 @@ class HttpTransport:
                 await self._sleep_backoff(attempt)
                 continue
 
+            if response.status_code in (401, 403):
+                raise ProviderAuthError(
+                    f"{self._name}: HTTP {response.status_code} -- check the API key"
+                )
             # v1 never inspected status codes at all: a 429 body became a
             # KeyError that aborted the whole run.
-            response.raise_for_status()
+            if response.status_code >= 400:
+                raise ProviderError(f"{self._name}: HTTP {response.status_code} for {url}")
             return response
 
         raise last_exc or ProviderError(f"{self._name}: exhausted retries for {url}")
 
-    async def get_json(self, url: str, **kwargs: object) -> dict:
+    async def get_json(self, url: str, **kwargs: Any) -> Any:
         response = await self.request("GET", url, **kwargs)
         return response.json()
 
     @staticmethod
     async def _sleep_backoff(attempt: int) -> None:
         # Full jitter, so parallel workers do not retry in lockstep.
-        await asyncio.sleep(random.uniform(0, min(2 ** attempt * 0.25, 8.0)))
+        # Not security-relevant: a timing jitter, so the PRNG is the right tool.
+        await asyncio.sleep(random.uniform(0, min(2 ** attempt * 0.25, 8.0)))  # nosec B311
 
 
 def _parse_retry_after(response: httpx.Response) -> float | None:
@@ -160,24 +170,45 @@ class Provider(abc.ABC):
         over v1, which always searched by title and blindly took result [0].
         """
         if request.pinned is not None and request.pinned.scheme in self.guid_schemes:
-            return await self.fetch_by_id(request.pinned, request)
+            result = await self.fetch_by_id(request.pinned, request)
+            result.matched_by = "binding"
+            return result
 
         direct = request.id_for(*self.guid_schemes)
         if direct is not None:
             try:
-                return await self.fetch_by_id(direct, request)
+                result = await self.fetch_by_id(direct, request)
             except ProviderNotFound:
                 log.debug("%s: guid %s missing upstream, falling back to search",
                           self.name, direct)
+            else:
+                result.matched_by = "guid"
+                return result
 
-        return await self.search(request)
+        result = await self.search(request)
+        result.matched_by = "search"
+        return result
+
+
+T = TypeVar("T")
+
+
+def score_of(value: object, *, scale: float = 1.0) -> float | None:
+    """A provider's numeric score on the 0-10 scale, or ``None``.
+
+    Zero and non-numbers mean "unrated"; writing 0 to Plex would be a real
+    zero-star rating, not the absence of one.
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
+        return None
+    return float(value) if scale == 1.0 else round(float(value) / scale, 1)
 
 
 def rank_candidates(
-    candidates: list[tuple[str, int | None, object]],
+    candidates: list[tuple[str, int | None, T]],
     title: str,
     year: int | None,
-) -> list[object]:
+) -> list[T]:
     """Order candidates by title equality, then year proximity, best first.
 
     v1 took ``results[0]`` unconditionally. Using the year Plex already knows
@@ -186,7 +217,7 @@ def rank_candidates(
     """
     target = _normalise(title)
 
-    def score(entry: tuple[str, int | None, object]) -> tuple[int, int]:
+    def score(entry: tuple[str, int | None, T]) -> tuple[int, int]:
         cand_title, cand_year, _ = entry
         name_score = 0 if _normalise(cand_title) == target else 1
         if year is None or cand_year is None:
@@ -201,10 +232,10 @@ def rank_candidates(
 
 
 def pick_best(
-    candidates: list[tuple[str, int | None, object]],
+    candidates: list[tuple[str, int | None, T]],
     title: str,
     year: int | None,
-) -> object | None:
+) -> T | None:
     """The single closest candidate, or ``None``."""
     ranked = rank_candidates(candidates, title, year)
     return ranked[0] if ranked else None

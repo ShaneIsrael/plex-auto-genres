@@ -1,7 +1,7 @@
 import { Link } from "react-router-dom";
 import type { RunView } from "../api/types";
 import { dateTime } from "../lib/format";
-import { RUN_STATUS_LABEL, toneForRun } from "./StatusDot";
+import { toneForRun } from "./StatusDot";
 
 const SLOTS = 40;
 
@@ -22,7 +22,7 @@ export function RunTape({ runs }: { runs: RunView[] }) {
         const tone = toneForRun(run.status);
         const written = run.report?.written ?? 0;
         const failed = run.report?.failed ?? 0;
-        const title = `${run.library} · ${run.action} · ${RUN_STATUS_LABEL[run.status]} · ${written} written, ${failed} failed · ${dateTime(run.started_at)}`;
+        const title = `${run.library} · ${run.action} · ${run.status} · ${written} written, ${failed} failed · ${dateTime(run.started_at)}`;
         return (
           <Link
             key={run.run_id}
