@@ -1,5 +1,6 @@
 import { lazy, Suspense } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
+import { AuthGate } from "./components/AuthGate";
 import { Shell } from "./components/Shell";
 import { PageSkeleton } from "./components/Skeleton";
 
@@ -15,7 +16,8 @@ const Bindings = lazy(() => import("./pages/Bindings"));
 
 export default function App() {
   return (
-    <Routes>
+    <AuthGate>
+      <Routes>
       <Route element={<Shell />}>
         <Route
           index
@@ -75,6 +77,7 @@ export default function App() {
         />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
-    </Routes>
+      </Routes>
+    </AuthGate>
   );
 }

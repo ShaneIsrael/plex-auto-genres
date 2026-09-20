@@ -292,3 +292,9 @@ export interface BindingIn {
   provider_id: string;
   note?: string | null;
 }
+
+export interface AuthStatus {
+  enabled: boolean;
+  authenticated: boolean;
+  insecure: boolean;
+}

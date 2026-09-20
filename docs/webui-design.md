@@ -350,9 +350,45 @@ Decisions taken:
 - **Item keys are the pipeline's own** (`media_key`: GUID first, else title + year),
   exposed as-is, so the CLI's `bind` and the UI address the same thing.
 
-### Phase 5 — next
+### Phase 5 — done
 
-Authentication: a single app password (`PAG_WEB_PASSWORD`), a session cookie, refuse to
-start on `0.0.0.0` without it unless `PAG_WEB_INSECURE=1`. No user accounts. Then decide
-where secrets should live if they are ever to be edited from the UI, and only then bulk
-field editing beyond genres.
+Shipped: `plex_auto_genres/server/auth.py`, the login screen, sign-out, and the bind
+check in `serve`.
+
+Decisions taken:
+
+- **Stateless sessions, keyed to both the password and a persisted secret.** The token
+  is `v1.<expiry>.<hmac>`; the HMAC key is `pbkdf2(password, salt=secret from the kv
+  table)`. Sessions survive restarts, a password change logs everyone out, and the
+  database alone cannot forge a cookie. Logout clears the cookie; the token simply
+  expires. No session table, no revocation list — one operator does not need them.
+- **Bearer for scripts, never Basic.** A `WWW-Authenticate: Basic` challenge makes
+  browsers pop their own credentials dialog on a failed `fetch`; the API answers 401
+  with a `Bearer` challenge instead and accepts the password as a bearer token.
+- **Deny by default, in ASGI.** `AuthMiddleware` guards everything under `/api/` except
+  the three auth endpoints; it is a raw ASGI middleware rather than
+  `BaseHTTPMiddleware` so server-sent events are not buffered. The SPA shell and its
+  assets stay public: they contain nothing, and the login screen lives in the SPA.
+- **Two locks on CSRF.** `SameSite=Lax` on the cookie, and unsafe methods are refused
+  when the browser reports `Sec-Fetch-Site: cross-site`. No CORS is configured.
+- **The bind check is in `serve`, not in the app.** `create_app` is also used by tests
+  and by anyone embedding it; the refusal to expose an open API belongs where the
+  host is chosen.
+- **The container now requires a password** in serve mode (or `PAG_WEB_INSECURE=1`):
+  it listens on every interface. The healthcheck sends the bearer header. This is a
+  breaking change for nobody — the UI has not been released.
+- **401 is handled once**, in `AuthGate`: any API call that comes back 401 dispatches
+  an event, the gate refetches the status and shows the login screen. Pages do not
+  know about sessions.
+
+### What is deliberately not here
+
+- TLS. Terminate it in a reverse proxy; the cookie's `Secure` flag follows
+  `X-Forwarded-Proto` or `PAG_WEB_SECURE_COOKIE`.
+- Multiple users, roles, tokens with scopes. One operator, one password.
+
+### Next
+
+Decide where secrets should live if they are ever to be edited from the UI — the
+options and their costs are in the phase 3 notes — and only then consider bulk field
+editing beyond genres. Both are product decisions before they are engineering ones.

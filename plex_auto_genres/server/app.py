@@ -16,6 +16,8 @@ from .. import __version__
 from ..errors import PagError
 from ..jobs import JobOptions
 from ..scheduler import run_forever
+from .auth import AuthMiddleware, AuthRuntime, AuthSettings
+from .auth import router as auth_router
 from .routes import router
 from .state import AppState
 
@@ -51,13 +53,25 @@ def create_app(
     run_on_start: bool = False,
     posters_dir: str | Path = "posters",
     static_dir: str | Path | None = None,
+    auth: AuthSettings | None = None,
 ) -> FastAPI:
-    """Build the app. ``cron`` also starts the scheduler inside the process."""
+    """Build the app. ``cron`` also starts the scheduler inside the process.
+
+    ``auth`` defaults to the environment (``PAG_WEB_PASSWORD`` & co). With no
+    password the API is open; :func:`auth.check_bind` is what stops that from
+    reaching a non-loopback interface unannounced.
+    """
+    auth_settings = auth if auth is not None else AuthSettings.from_env()
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         state = AppState(config_path, db_path, posters_dir=posters_dir)
         app.state.pag = state
+        app.state.auth = AuthRuntime.build(auth_settings, state.store)
+        if auth_settings.enabled:
+            log.info("Authentication enabled (session cookie / bearer)")
+        else:
+            log.warning("Authentication DISABLED: anyone who can reach this port can use it")
         await state.jobs.start()
         task: asyncio.Task | None = None
 
@@ -98,7 +112,9 @@ def create_app(
         redoc_url=None,
         openapi_url="/api/openapi.json",
     )
+    app.include_router(auth_router)
     app.include_router(router)
+    app.add_middleware(AuthMiddleware)
 
     @app.exception_handler(PagError)
     async def _pag_error(_: Request, exc: PagError) -> JSONResponse:

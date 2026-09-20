@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import type {
+  AuthStatus,
   BindingIn,
   BindingView,
   CandidateView,
@@ -42,6 +43,15 @@ export class ApiError extends Error {
   }
 }
 
+/** Fired when any API call comes back 401, so the shell can show the login screen. */
+export const UNAUTHORIZED_EVENT = "pag:unauthorized";
+
+function noteUnauthorized(status: number, path: string) {
+  if (status === 401 && !path.startsWith("/api/v1/auth/")) {
+    window.dispatchEvent(new Event(UNAUTHORIZED_EVENT));
+  }
+}
+
 async function get<T>(path: string, params?: Record<string, string | number | undefined>): Promise<T> {
   const url = new URL(path, window.location.origin);
   for (const [key, value] of Object.entries(params ?? {})) {
@@ -55,6 +65,7 @@ async function get<T>(path: string, params?: Record<string, string | number | un
     } catch {
       /* body was not JSON; keep the status-derived problem */
     }
+    noteUnauthorized(response.status, path);
     throw new ApiError(problem);
   }
   return (await response.json()) as T;
@@ -73,6 +84,7 @@ async function post<T>(path: string, body?: unknown): Promise<T> {
     } catch {
       /* not JSON */
     }
+    noteUnauthorized(response.status, path);
     throw new ApiError(problem);
   }
   return (await response.json()) as T;
@@ -94,6 +106,7 @@ async function send<T>(method: "PUT" | "POST" | "DELETE", path: string, body: un
     } catch {
       /* not JSON */
     }
+    noteUnauthorized(response.status, path);
     throw new ApiError(problem, body);
   }
   return (await response.json()) as T;
@@ -108,6 +121,9 @@ export interface ItemsQuery {
 }
 
 export const api = {
+  authStatus: () => get<AuthStatus>("/api/v1/auth/status"),
+  login: (password: string) => send<AuthStatus>("POST", "/api/v1/auth/login", { password }),
+  logout: () => send<AuthStatus>("POST", "/api/v1/auth/logout", undefined),
   health: () => get<Health>("/api/v1/health"),
   items: (library: string, query: ItemsQuery = {}) =>
     get<ItemsPage>(`/api/v1/libraries/${encodeURIComponent(library)}/items`, {
@@ -416,5 +432,36 @@ export function useForgetItem() {
   return useMutation({
     mutationFn: ({ library, mediaKey }: { library: string; mediaKey: string }) => api.forgetItem(library, mediaKey),
     onSuccess: invalidate,
+  });
+}
+
+// -- auth ----------------------------------------------------------------------
+
+export const useAuthStatus = () =>
+  useQuery({ queryKey: ["auth"], queryFn: api.authStatus, staleTime: 0, retry: false });
+
+export function useLogin() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (password: string) => api.login(password),
+    onSuccess: (status) => {
+      // The response is the new truth for the gate; everything else was
+      // fetched (or refused) under the old session.
+      qc.setQueryData(["auth"], status);
+      void qc.invalidateQueries({ predicate: (q) => q.queryKey[0] !== "auth" });
+    },
+  });
+}
+
+export function useLogout() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.logout(),
+    onSuccess: (status) => {
+      // Never clear() here: it orphans the mounted auth query, so the gate
+      // would keep its stale "authenticated" data while every poll 401s.
+      qc.setQueryData(["auth"], status);
+      qc.removeQueries({ predicate: (q) => q.queryKey[0] !== "auth" });
+    },
   });
 }

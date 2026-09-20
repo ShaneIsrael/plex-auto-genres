@@ -1375,3 +1375,87 @@ a.tape__cell:focus-visible {
 .match--search {
   color: var(--ink-3);
 }
+
+/* ---- auth gate / login ---------------------------------------------------- */
+
+.gate {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: 24px var(--gutter);
+}
+
+.gate--busy::after {
+  content: "";
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 2px solid var(--line-strong);
+  border-top-color: var(--amber);
+  animation: spin 0.9s linear infinite;
+}
+
+.login__card {
+  width: min(400px, 100%);
+  display: grid;
+  gap: 22px;
+  padding: 28px;
+  background: var(--surface-1);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+.login__brand {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.login__title {
+  font-size: var(--fs-28);
+  margin-top: 4px;
+}
+
+.login__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 40px;
+  gap: 6px;
+  align-items: center;
+}
+
+.login__submit {
+  justify-content: center;
+}
+
+.login__foot {
+  font-size: var(--fs-13);
+  line-height: 1.5;
+}
+
+.rail__signout {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+  min-height: 36px;
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: var(--fs-12);
+}
+
+.rail__signout:hover {
+  color: var(--ink);
+}
+
+.strip__signout {
+  flex: 0 0 auto;
+  align-self: center;
+  margin-left: 12px;
+  color: var(--ink-3);
+}
+
+@media (min-width: 1024px) {
+  .strip__signout {
+    display: none;   /* the rail has the labelled button */
+  }
+}

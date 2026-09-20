@@ -493,6 +493,7 @@ def cmd_serve(args, style: Style) -> int:
     import uvicorn
 
     from .server import create_app
+    from .server.auth import AuthSettings, check_bind
 
     if args.cron:
         try:
@@ -501,13 +502,21 @@ def cmd_serve(args, style: Style) -> int:
             print(style.red(str(exc)))
             return 2
 
+    auth = AuthSettings.from_env()
+    check_bind(auth, args.host)  # raises ConfigError; main() prints it
+    if not auth.enabled:
+        print(style.yellow(
+            "No PAG_WEB_PASSWORD set: the console is open to anyone who can reach it."
+        ))
+
     app = create_app(
         args.config, args.db,
         cron=args.cron, run_on_start=args.now,
         posters_dir=args.posters_dir, static_dir=args.static_dir,
+        auth=auth,
     )
     print(f"plex-auto-genres UI on {style.cyan(f'http://{args.host}:{args.port}')}"
-          f"  (API docs: /api/docs)")
+          f"  (API docs: /api/docs, login: {'required' if auth.enabled else 'off'})")
     uvicorn.run(app, host=args.host, port=args.port, log_level="info", access_log=False)
     return 0
 

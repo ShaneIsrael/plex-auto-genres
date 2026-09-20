@@ -19,6 +19,13 @@ services:
       # --- Mode: "serve" (web UI + scheduler) or "schedule" (headless, as v1)
       PAG_MODE: "serve"
       PAG_WEB_PORT: "8095"
+      # --- Login. Required in serve mode: the container listens on every
+      # interface, and the API can run jobs and rewrite your config.
+      # Put the value in the .env file next to this compose file.
+      PAG_WEB_PASSWORD: "${PAG_WEB_PASSWORD:?set PAG_WEB_PASSWORD (or PAG_WEB_INSECURE=1) in .env}"
+      # PAG_WEB_INSECURE: "1"       # run without a login; only on a private network you trust
+      # PAG_WEB_SESSION_DAYS: "30"
+      # PAG_WEB_SECURE_COOKIE: "1"  # force the Secure flag behind an https reverse proxy
       # --- Scheduling
       CRON_SCHEDULE: "0 1 * * *"
       RUN_ON_START: "true"
@@ -28,8 +35,8 @@ services:
     # The image already runs as uid 1000; override if your volumes differ.
     # user: "1000:1000"
 
-# The UI has no authentication yet (planned). Keep the port on your LAN or
-# behind a reverse proxy that adds auth; do not expose it to the internet.
+# Behind a reverse proxy that terminates TLS, set PAG_WEB_SECURE_COOKIE=1 and
+# forward X-Forwarded-Proto so the session cookie is marked Secure.
 #
 # Secrets note: putting PLEX_TOKEN directly in this file means it lands in
 # `docker inspect` and your shell history. Prefer a .env file beside the

@@ -1,5 +1,6 @@
+import { LogOut } from "lucide-react";
 import { Link } from "react-router-dom";
-import { isActive, useDoctor, useHealth, useJobs, useRuns } from "../api/client";
+import { isActive, useAuthStatus, useDoctor, useHealth, useJobs, useLogout, useRuns } from "../api/client";
 import { relTime } from "../lib/format";
 import { StatusDot, RUN_STATUS_LABEL, toneForRun } from "./StatusDot";
 
@@ -9,6 +10,8 @@ export function StatusStrip() {
   const doctor = useDoctor();
   const runs = useRuns(1);
   const jobs = useJobs();
+  const auth = useAuthStatus();
+  const logout = useLogout();
 
   const plex = health.data?.plex;
   const last = runs.data?.[0];
@@ -81,6 +84,11 @@ export function StatusStrip() {
         <span className="strip__sep" aria-hidden="true">·</span>
         <span>v{health.data?.version ?? "—"}</span>
       </div>
+      {auth.data?.enabled && (
+        <button type="button" className="strip__signout iconbtn" aria-label="Sign out" title="Sign out" onClick={() => logout.mutate()} disabled={logout.isPending}>
+          <LogOut size={15} aria-hidden="true" />
+        </button>
+      )}
     </div>
   );
 }

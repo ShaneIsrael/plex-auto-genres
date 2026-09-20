@@ -78,9 +78,12 @@ plex-auto-genres serve --host 0.0.0.0           # reachable from the LAN
 |---|---|---|
 | `PAG_MODE` | `serve` | `serve` = UI + scheduler; `schedule` = headless, as v1 |
 | `PAG_WEB_PORT` | `8095` | Port the UI listens on |
+| `PAG_WEB_PASSWORD` | — | Login password. Required unless the bind is loopback or `PAG_WEB_INSECURE=1` |
+| `PAG_WEB_INSECURE` | — | `1` to run without a login on a network you trust |
+| `PAG_WEB_SESSION_DAYS` | `30` | Session lifetime |
+| `PAG_WEB_SECURE_COOKIE` | auto | Force the cookie's `Secure` flag (behind an https proxy) |
 
-The API is documented at `/api/docs`. **There is no authentication yet** — keep the port
-on your LAN or behind a reverse proxy that adds it.
+The API is documented at `/api/docs` once signed in.
 
 The **Config** page edits `config.json` itself: libraries (type, providers, what to
 write, post-actions, per-library overrides) and the per-type defaults, with the server
@@ -95,7 +98,21 @@ did. From there you can search a provider for the right record — ranked candid
 posters and synopses — and **bind** the item to it, or type an id straight in. Bindings
 can also be removed, and a cached result forgotten so the next run retries it.
 
-What is still missing is authentication; see [docs/webui-design.md](docs/webui-design.md).
+### Security
+
+The console asks for a password: set `PAG_WEB_PASSWORD`. Sessions are an `HttpOnly`,
+`SameSite=Lax` cookie that survives restarts and is invalidated by changing the password.
+Scripts send the same password as a bearer token:
+
+```bash
+curl -H "Authorization: Bearer $PAG_WEB_PASSWORD" http://127.0.0.1:8095/api/v1/health
+```
+
+`serve` **refuses to listen on anything but loopback without a password**; on a private
+network you trust, `PAG_WEB_INSECURE=1` overrides that, loudly. Failed logins are limited
+to five a minute per client. Behind a TLS-terminating reverse proxy, set
+`PAG_WEB_SECURE_COOKIE=1` and forward `X-Forwarded-Proto` so the cookie is marked
+`Secure`. There are no user accounts, on purpose; there is one operator.
 
 Everything the UI does is plain HTTP — `POST /api/v1/libraries/{name}/run`,
 `GET /api/v1/jobs/{id}/events` (server-sent events), `POST /api/v1/jobs/{id}/cancel`,

@@ -1,5 +1,6 @@
-import { History, LayoutDashboard, Library, Link2, Settings2 } from "lucide-react";
+import { History, LayoutDashboard, Library, Link2, LogOut, Settings2 } from "lucide-react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
+import { useAuthStatus, useLogout } from "../api/client";
 import { useConfirm } from "./ConfirmDialog";
 import { StatusStrip } from "./StatusStrip";
 import { useUnsaved } from "./UnsavedGuard";
@@ -16,6 +17,9 @@ export function Shell() {
   const { dirty } = useUnsaved();
   const confirm = useConfirm();
   const navigate = useNavigate();
+  const auth = useAuthStatus();
+  const logout = useLogout();
+  const canSignOut = auth.data?.enabled === true;
 
   // Leaving a page with unsaved edits asks first; the browser's own
   // beforeunload covers reloads and closed tabs.
@@ -57,6 +61,11 @@ export function Shell() {
 
         <div className="rail__foot mono faint">
           <a href="/api/docs" target="_blank" rel="noreferrer">API docs ↗</a>
+          {canSignOut && (
+            <button type="button" className="rail__signout" onClick={() => logout.mutate()} disabled={logout.isPending}>
+              <LogOut size={13} aria-hidden="true" /> Sign out
+            </button>
+          )}
         </div>
       </nav>
 
