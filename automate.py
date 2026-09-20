@@ -1,100 +1,17 @@
-import os
+#!/usr/bin/env python3
+"""Backwards-compatible automation entry point.
+
+v1 shelled out to ``plex-auto-genres.py`` once per library, then once more per
+post-processing action, sleeping 45 seconds between them to dodge a Plex rate
+limit. v2 does all of that in-process, so this is now a thin alias for
+``plex-auto-genres run``.
+"""
+
+from __future__ import annotations
+
 import sys
-import json
-import math
-import time
-import datetime
-import numpy as np
-from timeit import default_timer as timer
-from subprocess import Popen, PIPE, STDOUT
-from src.colors import bcolors
 
-WAIT_TIME=45
+from plex_auto_genres.cli import main
 
-def getTimestamp():
-    return datetime.datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S')
-
-def rateLimitSleep(timeDelta):
-    if timeDelta < WAIT_TIME:
-        printWithTimestamp(f'\t> Sleeping for {math.ceil(WAIT_TIME - timeDelta)} seconds to avoid Plex connection rate limit...')
-        time.sleep(math.ceil(WAIT_TIME - timeDelta))
-    return
-
-def printWithTimestamp(text):
-    print(f'{getTimestamp()}    {text}')
-
-if not os.path.isfile('config/config.json'):
-    print(f'{bcolors.FAIL}No config.json found at {os.getcwd()}/config/config.json')
-    sys.exit(1)
-
-with open('config/config.json') as f:
-    config = json.load(f)
-
-if not os.path.isdir('logs'):
-    print(f'Could not find logs directory, expected {os.getcwd()}/logs')
-    sys.exit(1)
-
-LOGFILE = 'logs/plex-auto-genres-automate.log'
-executions = config['automation_settings']['run']
-
-for i, run in enumerate(executions, 1):
-    LIBRARY          = run['library']
-    TYPE             = run['type']
-    SET_POSTERS      = run['setPosters']
-    SORT_COLLECTIONS = run['sortCollections']
-    RATE_ANIME       = run['rateAnime']
-    RATING_COLS      = run['createRatingCollections']
-    USE_KEYWORDS     = run['useKeywords']
-    USE_GENRES       = run['useGenres']
-    CLEAR_GENRES     = run['clearGenres']
-
-    start = timer()
-    printWithTimestamp(f'{bcolors.OKCYAN}Running [{i}/{len(executions)}] -- library={LIBRARY}, type={TYPE}{bcolors.ENDC}')
-
-    argumentList = ['python', 'plex-auto-genres.py', '--library', f'{LIBRARY}', '--type', f'{TYPE}', '--yes', '--no-progress']
-
-    if USE_KEYWORDS:
-        argumentList.append('--use-keywords')
-    if USE_GENRES:
-        argumentList.append('--use-genres')
-    if CLEAR_GENRES:
-        argumentList.append('--clear-genres')
-
-    printWithTimestamp(f'\t> Checking for new media and fetching genres...')
-    with Popen(argumentList, stdout=PIPE, stderr=STDOUT) as p, open(LOGFILE, 'ab') as file:
-        file.write(str.encode(f'--- Execution {getTimestamp()} ---\n'))
-        for line in p.stdout:
-            file.write(line)
-        file.close()
-
-    postProcess = []
-    if SET_POSTERS:
-        postProcess.append('--set-posters')
-
-    if SORT_COLLECTIONS:
-        postProcess.append('--sort')
-
-    if RATE_ANIME:
-        postProcess.append('--rate-anime')
-
-    if RATING_COLS:
-        postProcess.append('--create-rating-collections')
-
-    if postProcess:
-        for command in postProcess:
-            rateLimitSleep(timer() - start)
-            start = timer()
-            printWithTimestamp(f'\t> Running post process command: {command}')
-            plist = np.empty_like(argumentList)
-            plist[:] = argumentList
-            plist = np.append(plist, command)
-            with Popen(plist, stdout=PIPE, stderr=STDOUT) as p, open(LOGFILE, 'ab') as file:
-                for line in p.stdout:
-                    file.write(line)
-                file.write(str.encode('\n'))
-                file.close()
-        printWithTimestamp('\t> Post process command(s) finished...')
-    else:
-        printWithTimestamp('\t> No post process commands to run, finished...')
-
-print()
+if __name__ == "__main__":
+    raise SystemExit(main(["run", "--yes", "--no-progress", *sys.argv[1:]]))
