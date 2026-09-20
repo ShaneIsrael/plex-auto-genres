@@ -29,7 +29,7 @@ from .plexsvc.writer import undo_run
 from .providers import LookupRequest, build_providers
 from .reporting import ProgressBar, Style, print_report
 from .runner import ACTIONS, run_libraries
-from .scheduler import run_forever, validate_cron
+from .scheduler import Scheduler, validate_cron
 from .store import Store, run_status
 
 log = logging.getLogger("plex_auto_genres")
@@ -124,7 +124,8 @@ def build_parser() -> argparse.ArgumentParser:
     migrate.add_argument("--out", help="Write here instead of stdout.")
 
     schedule = sub.add_parser("schedule", help="Run on a cron schedule, in the foreground.")
-    schedule.add_argument("--cron", default="0 1 * * *", help="Five-field cron expression.")
+    schedule.add_argument("--cron", default="0 1 * * *",
+                          help="Five-field cron expression; the config's schedule block wins.")
     schedule.add_argument("--now", action="store_true", help="Also run once on start.")
     schedule.add_argument("--posters-dir", default="posters")
 
@@ -481,18 +482,30 @@ def cmd_migrate_config(config_path: str, out: str | None, style: Style) -> int:
 
 
 async def cmd_schedule(args, config_path: str, db_path: str, style: Style) -> int:
-    """Run on a schedule in the foreground, replacing the container's crond."""
+    """Run on a schedule in the foreground, replacing the container's crond.
+
+    The config's ``schedule`` block (editable from the UI) overrides ``--cron``
+    and can pause the pass; both are re-read while running.
+    """
     try:
         validate_cron(args.cron)
     except ValueError as exc:
         print(style.red(str(exc)))
         return 2
 
-    print(f"Scheduler started. Cron: {style.cyan(args.cron)}")
+    print(f"Scheduler started. Fallback cron: {style.cyan(args.cron)}")
+    announced: list[float | None] = [None]
 
     def announce(fire_at: float) -> None:
+        if announced[0] == fire_at:
+            return  # the loop re-plans every minute; only say it once
+        announced[0] = fire_at
         when = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(fire_at))
         print(style.dim(f"Next run at {when} (in {int(fire_at - time.time())}s)"))
+
+    def settings() -> tuple[str | None, bool] | None:
+        schedule = load_config(config_path).schedule
+        return schedule.cron, schedule.enabled
 
     async def one_pass() -> None:
         stamp = time.strftime("%Y-%m-%d %H:%M:%S")
@@ -508,8 +521,9 @@ async def cmd_schedule(args, config_path: str, db_path: str, style: Style) -> in
         except PagError as exc:
             print(style.red(f"Run failed: {exc}"))
 
+    scheduler = Scheduler(one_pass, settings=settings, fallback=args.cron, on_schedule=announce)
     try:
-        await run_forever(args.cron, one_pass, run_now=args.now, on_schedule=announce)
+        await scheduler.run_forever(run_now=args.now)
     except asyncio.CancelledError:
         print("\nScheduler stopped.")
     return 0

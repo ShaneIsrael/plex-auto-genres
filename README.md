@@ -87,12 +87,15 @@ plex-auto-genres serve --host 0.0.0.0           # reachable from the LAN
 | `PAG_WEB_SESSION_DAYS` | `30` | Session lifetime |
 | `PAG_WEB_SECURE_COOKIE` | auto | Force the cookie's `Secure` flag (behind an https proxy) |
 | `PAG_WEB_TRUSTED_PROXIES` | — | Comma-separated proxy addresses whose `X-Forwarded-For` is believed for the login rate limit |
+| `CRON_SCHEDULE` | `0 1 * * *` | Fallback schedule. The `schedule` block in `config.json` — editable on the Config page, where it can also be paused — takes precedence |
 
 The API is documented at `/api/docs` once signed in.
 
 The **Config** page edits `config.json` itself: libraries (type, providers, what to
-write, post-actions, per-library overrides) and the per-type defaults, with the server
-validating every keystroke. Saving writes the file atomically, keeps the previous one as
+write, post-actions, per-library overrides), the per-type defaults, and the **schedule**
+of the automatic pass — a preset or a cron expression checked live, with a switch to
+pause it without losing the expression; the running scheduler picks the change up as
+soon as it is saved. The server validates every keystroke. Saving writes the file atomically, keeps the previous one as
 `config.json.bak`, preserves any `//` comments you wrote by hand, and refuses to overwrite
 a file that changed on disk since you loaded it. Credentials stay in the environment and
 are shown read-only.

@@ -16,6 +16,7 @@ from ..errors import ConfigError, PlexConnectionError
 from ..jobs import Job, JobManager
 from ..models import MediaItem
 from ..plexsvc import client as plex_client
+from ..scheduler import Scheduler
 from ..store import Store
 
 log = logging.getLogger(__name__)
@@ -47,8 +48,8 @@ class AppState:
         self.db_path = Path(db_path)
         self.store = Store(self.db_path)
         self.started_at = time.time()
-        self.scheduler_cron: str | None = None
-        self.scheduler_next: float | None = None
+        #: Set by the app lifespan when a scheduler runs in this process.
+        self.scheduler: Scheduler | None = None
         self.jobs = JobManager(
             self.store, self.config, self.plex, posters_dir=posters_dir,
             on_finish=self._after_job,
@@ -105,6 +106,16 @@ class AppState:
         self._config = None
         self._config_mtime = None
         self._config_etag = None
+        if self.scheduler is not None:
+            self.scheduler.replan()
+
+    def schedule_settings(self) -> tuple[str | None, bool] | None:
+        """The config's schedule block for the scheduler; ``None`` if unreadable."""
+        try:
+            schedule = self.config().schedule
+        except ConfigError:
+            return None
+        return schedule.cron, schedule.enabled
 
     # -- plex -------------------------------------------------------------
 

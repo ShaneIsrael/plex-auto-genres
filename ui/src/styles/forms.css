@@ -41,6 +41,10 @@
   min-width: 0;
 }
 
+.field > * {
+  min-width: 0;
+}
+
 .field__label {
   display: block;
 }
@@ -191,6 +195,8 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 6px;
+  min-width: 0;
+  max-width: 100%;
   min-height: 40px;
   padding: 4px 8px;
   border: 1px solid var(--line-strong);
@@ -231,8 +237,8 @@
 }
 
 .tags__input {
-  flex: 1 1 120px;
-  min-width: 120px;
+  flex: 1 1 80px;
+  min-width: 80px;
   min-height: 30px;
   border: 0;
   background: transparent;
@@ -308,6 +314,7 @@
   background: var(--surface-1);
   border: 1px solid var(--line);
   border-radius: var(--radius);
+  container-type: inline-size;
 }
 
 .editor-card--invalid {
@@ -348,7 +355,9 @@
   gap: 16px 24px;
 }
 
-@media (min-width: 768px) {
+/* Two columns only when the *container* is wide enough for two real
+   fields, whatever the viewport does. */
+@container (min-width: 600px) {
   .editor-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -356,6 +365,45 @@
   .editor-grid > .span-2 {
     grid-column: 1 / -1;
   }
+}
+
+/* ---- schedule ------------------------------------------------------------ */
+
+.schedule {
+  display: grid;
+  gap: 16px;
+}
+
+.schedule__row {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 16px 24px;
+}
+
+@container (min-width: 700px) {
+  .schedule__row {
+    grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  }
+}
+
+.schedule__preview {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  font-size: var(--fs-13);
+  color: var(--ink-2);
+  line-height: 1.5;
+}
+
+.schedule__preview strong {
+  color: var(--ink);
+  font-weight: 500;
+}
+
+.schedule__preview--paused strong {
+  color: var(--ink-2);
+  text-decoration: line-through;
 }
 
 .toggle-grid {
@@ -409,6 +457,7 @@
   padding: 8px 0 4px;
   display: grid;
   gap: 16px;
+  container-type: inline-size;
 }
 
 .section-head {

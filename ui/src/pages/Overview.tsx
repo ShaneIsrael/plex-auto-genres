@@ -74,9 +74,14 @@ export default function Overview() {
         eyebrow="01 · Overview"
         title={serverName ? <>{serverName}</> : "Master control"}
         lede={
-          health.data?.plex.reachable
-            ? `Plex ${health.data.plex.version ?? ""} · ${enabled.length} of ${configured.length} libraries enabled`
-            : health.data?.plex.error ?? "Waiting for Plex…"
+          <>
+            {health.data?.plex.reachable
+              ? `Plex ${health.data.plex.version ?? ""} · ${enabled.length} of ${configured.length} libraries enabled`
+              : health.data?.plex.error ?? "Waiting for Plex…"}
+            {health.data?.scheduler && !health.data.scheduler.enabled && (
+              <Link to="/config#schedule" className="chip chip--warn">schedule paused</Link>
+            )}
+          </>
         }
         actions={
           <button

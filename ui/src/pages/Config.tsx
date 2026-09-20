@@ -1,20 +1,24 @@
 import { Plus } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ApiError, api, useConfig, useLibraries, useSaveConfig, useSchema } from "../api/client";
-import type { ConfigDocument, GenreRules, LibraryRun, MediaType, ValidationIssue } from "../api/types";
+import { useLocation } from "react-router-dom";
+import { ApiError, api, useConfig, useHealth, useLibraries, useSaveConfig, useSchema } from "../api/client";
+import type { ConfigDocument, GenreRules, LibraryRun, MediaType, ScheduleSettings, ValidationIssue } from "../api/types";
 import { useConfirm } from "../components/ConfirmDialog";
 import { ErrorBlock } from "../components/Empty";
 import { LocalIssuesProvider, type ReportIssues } from "../components/form/LocalIssues";
+import { Segmented } from "../components/form/Segmented";
 import { PageHeader, Panel } from "../components/Panel";
 import { PageSkeleton } from "../components/Skeleton";
 import { useToast } from "../components/Toast";
 import { useUnsaved } from "../components/UnsavedGuard";
+import { relTime } from "../lib/format";
 import { reveal } from "../lib/reveal";
 import { TYPES, emptyRules, helpFrom, issuesUnder, newLibrary, same, toDocument, type JsonSchemaLike } from "./config/editor";
 import { LibraryEditor } from "./config/LibraryEditor";
 import { Doctor, Environment } from "./config/Reference";
 import { RulesEditor } from "./config/RulesEditor";
 import { SaveBar, type ValidationStatus } from "./config/SaveBar";
+import { ScheduleEditor } from "./config/ScheduleEditor";
 
 /** Server-side validation, debounced, ignoring out-of-order responses. */
 function useLiveValidation(doc: ConfigDocument | null, active: boolean) {
@@ -45,6 +49,8 @@ export default function Config() {
   const config = useConfig();
   const schema = useSchema();
   const libraries = useLibraries();
+  const health = useHealth();
+  const location = useLocation();
   const save = useSaveConfig();
   const confirm = useConfirm();
   const toast = useToast();
@@ -54,6 +60,9 @@ export default function Config() {
   const [baseline, setBaseline] = useState<ConfigDocument | null>(null);
   const [etag, setEtag] = useState<string | null>(null);
   const [focusNew, setFocusNew] = useState<number | null>(null);
+  // The defaults editor shows one type at a time, full width: three side by
+  // side left each rules form 150px per column and the tag boxes spilling out.
+  const [defaultsType, setDefaultsType] = useState<MediaType>("anime");
   // One stable key per library card, moved and removed alongside the entry,
   // so per-card DOM state (an opened overrides panel, a caret) follows the
   // library rather than its slot when the list is reordered.
@@ -96,6 +105,28 @@ export default function Config() {
     return () => setDirty(false);
   }, [dirty, setDirty]);
 
+  // /config#schedule and /config#doctor: the target only exists once the
+  // draft has rendered, which is after the browser's own scroll attempt, and
+  // the panels above it keep growing for a few frames as their data lands.
+  const ready = draft !== null;
+  useEffect(() => {
+    const hash = location.hash || window.location.hash;
+    if (!ready || !hash) return;
+    const id = hash.slice(1);
+    const started = Date.now();
+    let settled = 0;
+    // Poll briefly: on a cold load the section exists before the page has
+    // its final height, and a single scrollIntoView lands short.
+    const handle = window.setInterval(() => {
+      const target = document.getElementById(id);
+      const top = target ? Math.abs(target.getBoundingClientRect().top) : Infinity;
+      if (target && top > 8) target.scrollIntoView({ block: "start" });
+      settled = top <= 8 ? settled + 1 : 0;
+      if (settled >= 2 || Date.now() - started > 2500) window.clearInterval(handle);
+    }, 100);
+    return () => window.clearInterval(handle);
+  }, [ready, location.hash]);
+
   // The error branch comes first: with a failing GET the draft never
   // materialises, and a skeleton would sit there forever.
   if (config.isError && baseline === null) {
@@ -115,6 +146,8 @@ export default function Config() {
     setDraft({ ...draft, libraries: next });
     if (keys) setLibKeys(keys);
   };
+  const setSchedule = (schedule: ScheduleSettings) => setDraft({ ...draft, schedule });
+  const definedDefaults = TYPES.filter((t) => draft.defaults[t]).length;
   const setDefault = (type: MediaType, rules: GenreRules | null) => {
     const defaults = { ...draft.defaults };
     if (rules === null) delete defaults[type];
@@ -234,34 +267,73 @@ export default function Config() {
         ))}
       </section>
 
-      <section {...reveal(2, "editor")}>
+      <section {...reveal(2, "editor")} id="schedule">
+        <div className="section-head">
+          <div>
+            <h2>Schedule</h2>
+            <p>The automatic pass: when it runs, and whether it runs at all. Changes apply as soon as they are saved.</p>
+          </div>
+        </div>
+        <Panel
+          eyebrow="Automatic pass"
+          title={draft.schedule.enabled ? "Scheduled" : "Paused"}
+          aside={
+            health.data?.scheduler?.enabled && health.data.scheduler.next_fire_at ? (
+              <span className="faint mono">next run {relTime(health.data.scheduler.next_fire_at)}</span>
+            ) : health.data?.scheduler ? (
+              <span className="faint mono">{health.data.scheduler.enabled ? "no next run" : "paused on the server"}</span>
+            ) : (
+              <span className="faint mono">no schedule on the server</span>
+            )
+          }
+        >
+          <ScheduleEditor id="schedule" value={draft.schedule} effective={health.data?.scheduler} onChange={setSchedule} errors={issuesUnder(errors, ["schedule"])} help={help} />
+        </Panel>
+      </section>
+
+      <section {...reveal(3, "editor")}>
         <div className="section-head">
           <div>
             <h2>Defaults by type</h2>
             <p>Rules every library of a type inherits. A library's overrides are layered on top.</p>
           </div>
+          <Segmented
+            name="defaults-type"
+            ariaLabel="Which type's defaults to edit"
+            value={defaultsType}
+            onChange={setDefaultsType}
+            options={TYPES.map((t) => ({ value: t, label: draft.defaults[t] ? t : `${t} (none)`, hint: draft.defaults[t] ? "Has defaults" : "No defaults yet" }))}
+          />
         </div>
-        <div className="three-col">
-          {TYPES.map((type) => {
-            const rules = draft.defaults[type];
-            return (
-              <Panel key={type} eyebrow="Defaults" title={type} aside={rules ? <button type="button" className="button button--ghost button--sm" onClick={() => setDefault(type, null)}>Remove</button> : undefined}>
-                {rules ? (
-                  <RulesEditor id={`def-${type}`} rules={rules} onChange={(v) => setDefault(type, v)} errors={issuesUnder(errors, ["defaults", type])} loc={["defaults", type]} help={help} />
-                ) : (
-                  <button type="button" className="button button--ghost button--sm" onClick={() => setDefault(type, emptyRules())}>
-                    <Plus size={12} aria-hidden="true" /> Add defaults for {type}
-                  </button>
-                )}
-              </Panel>
-            );
-          })}
-        </div>
+        {(() => {
+          const type = defaultsType;
+          const rules = draft.defaults[type];
+          return (
+            <Panel
+              eyebrow={`Defaults · ${definedDefaults} of ${TYPES.length} types set`}
+              title={type}
+              aside={rules ? <button type="button" className="button button--ghost button--sm" onClick={() => setDefault(type, null)}>Remove</button> : undefined}
+            >
+              {rules ? (
+                <RulesEditor id={`def-${type}`} rules={rules} onChange={(v) => setDefault(type, v)} errors={issuesUnder(errors, ["defaults", type])} loc={["defaults", type]} help={help} />
+              ) : (
+                <div className="stack">
+                  <p className="muted">No defaults for {type} yet: its libraries use the provider's genres as they come.</p>
+                  <div>
+                    <button type="button" className="button button--ghost button--sm" onClick={() => setDefault(type, emptyRules())}>
+                      <Plus size={12} aria-hidden="true" /> Add defaults for {type}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </Panel>
+          );
+        })()}
       </section>
 
       <div className="two-col">
-        {config.data && <Environment config={config.data} index={3} />}
-        <Doctor index={4} />
+        {config.data && <Environment config={config.data} index={4} />}
+        <Doctor index={5} />
       </div>
 
       {dirty && (

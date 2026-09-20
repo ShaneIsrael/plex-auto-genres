@@ -15,8 +15,24 @@ export interface PlexStatus {
 }
 
 export interface SchedulerStatus {
-  cron: string;
+  cron: string | null;
+  enabled: boolean;
+  /** Where the expression came from: the config file, --cron / CRON_SCHEDULE, or nowhere. */
+  source: "config" | "env" | "none";
   next_fire_at: number | null;
+}
+
+export interface ScheduleSettings {
+  /** Five-field cron expression; null means "use the server's --cron / CRON_SCHEDULE". */
+  cron: string | null;
+  /** False pauses the automatic pass without losing the expression. */
+  enabled: boolean;
+}
+
+export interface CronPreview {
+  ok: boolean;
+  error: string | null;
+  next_fire_at: number[];
 }
 
 export interface Health {
@@ -69,6 +85,7 @@ export interface ConfigView {
   version: number;
   defaults: Partial<Record<MediaType, GenreRules>>;
   libraries: LibraryRun[];
+  schedule: ScheduleSettings;
   secrets: Secrets;
   providers: { tmdb_language: string; concurrency: number; max_attempts: number };
 }
@@ -215,6 +232,7 @@ export interface ConfigDocument {
   version: number;
   defaults: Partial<Record<MediaType, GenreRules>>;
   libraries: LibraryRun[];
+  schedule: ScheduleSettings;
 }
 
 export interface ValidationIssue {

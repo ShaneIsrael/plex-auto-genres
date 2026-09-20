@@ -256,6 +256,7 @@ class AuthMiddleware:
         self.app = app
 
     async def __call__(self, scope, receive, send) -> None:
+        """Deny anything under /api/ that carries no valid session or bearer."""
         if scope["type"] != "http" or not scope["path"].startswith("/api/"):
             await self.app(scope, receive, send)
             return

@@ -266,6 +266,37 @@ class ProviderSettings(BaseModel):
     max_attempts: int = Field(default=3, ge=1, le=10)
 
 
+class ScheduleSettings(BaseModel):
+    """When the automatic pass runs. Editable from the UI; lives in the file."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    cron: str | None = Field(
+        default=None,
+        description=(
+            "Five-field cron expression for the automatic pass, e.g. '0 1 * * *' "
+            "for one o'clock every night. Empty: use the server's --cron / "
+            "CRON_SCHEDULE, if any."
+        ),
+    )
+    enabled: bool = Field(
+        default=True,
+        description="Set to false to pause the automatic pass without losing the expression.",
+    )
+
+    @field_validator("cron")
+    @classmethod
+    def _check_cron(cls, value: str | None) -> str | None:
+        value = (value or "").strip()
+        if not value:
+            return None
+        from croniter import croniter
+
+        if not croniter.is_valid(value):
+            raise ValueError(f"not a valid cron expression: {value!r}")
+        return value
+
+
 class AppConfig(BaseModel):
     """The whole configuration tree."""
 
@@ -274,6 +305,7 @@ class AppConfig(BaseModel):
     version: int = CONFIG_VERSION
     defaults: dict[MediaType, GenreRules] = Field(default_factory=dict)
     libraries: list[LibraryRun] = Field(default_factory=list)
+    schedule: ScheduleSettings = Field(default_factory=ScheduleSettings)
     plex: PlexSettings = Field(default_factory=PlexSettings)
     providers: ProviderSettings = Field(default_factory=ProviderSettings)
 
@@ -485,7 +517,7 @@ def config_json_schema() -> dict[str, Any]:
 
 #: Keys the editable document may carry. Everything else comes from the
 #: environment and is never written to the file.
-DOCUMENT_KEYS = ("version", "defaults", "libraries")
+DOCUMENT_KEYS = ("version", "defaults", "libraries", "schedule")
 
 
 def editable_document(config: AppConfig) -> dict[str, Any]:
@@ -497,6 +529,7 @@ def editable_document(config: AppConfig) -> dict[str, Any]:
             for media_type, rules in config.defaults.items()
         },
         "libraries": [run.model_dump(by_alias=True, mode="json") for run in config.libraries],
+        "schedule": config.schedule.model_dump(),
     }
 
 

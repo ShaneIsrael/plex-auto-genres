@@ -365,6 +365,8 @@ a.strip__cell:hover {
 
 .panel__body {
   padding: 16px 20px 20px;
+  /* Forms inside size their grids to the panel, not the viewport. */
+  container-type: inline-size;
 }
 
 /* ---- page header ------------------------------------------------------ */
@@ -695,27 +697,16 @@ a.tape__cell:focus-visible {
   flex: 0 0 auto;
 }
 
-/* ---- run menu: primary action + a <details> popover ------------------ */
+/* ---- run menu: primary action + a portal menu ------------------------- */
 
 .runmenu {
   display: inline-flex;
   align-items: stretch;
-  position: relative;
-}
-
-/* A card whose run menu is open must paint above its later siblings. */
-.card:has(.runmenu__more[open]) {
-  position: relative;
-  z-index: 2;
 }
 
 .runmenu__main {
   border-top-right-radius: 0;
   border-bottom-right-radius: 0;
-}
-
-.runmenu__more {
-  position: relative;
 }
 
 .runmenu__toggle {
@@ -724,20 +715,16 @@ a.tape__cell:focus-visible {
   border-top-left-radius: 0;
   border-bottom-left-radius: 0;
   border-left: 1px solid rgba(0, 0, 0, 0.25);
-  list-style: none;
   justify-content: center;
 }
 
-.runmenu__toggle::-webkit-details-marker {
-  display: none;
-}
+/* ---- menu: rendered into <body>, positioned from the trigger ---------- */
 
-.runmenu__pop {
-  position: absolute;
-  right: 0;
-  top: calc(100% + 6px);
+.menu {
+  position: fixed;
   z-index: var(--z-overlay);
   min-width: 260px;
+  max-width: calc(100vw - 16px);
   padding: 6px;
   background: var(--surface-2);
   border: 1px solid var(--line-strong);
@@ -748,7 +735,26 @@ a.tape__cell:focus-visible {
   animation: reveal var(--dur-fast) var(--ease-out) both;
 }
 
-.runmenu__pop button {
+.menu--measuring {
+  visibility: hidden;
+}
+
+.menu--up {
+  animation-name: reveal-up;
+}
+
+@keyframes reveal-up {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.menu button {
   display: grid;
   gap: 2px;
   text-align: left;
@@ -761,12 +767,12 @@ a.tape__cell:focus-visible {
   color: var(--ink);
 }
 
-.runmenu__pop button:hover,
-.runmenu__pop button:focus-visible {
+.menu button:hover,
+.menu button:focus-visible {
   background: var(--surface-3);
 }
 
-.runmenu__pop button .faint {
+.menu button .faint {
   font-size: var(--fs-12);
   font-family: var(--font-sans);
 }

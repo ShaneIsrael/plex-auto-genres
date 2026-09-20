@@ -73,14 +73,20 @@ export function StatusStrip() {
 
       <div className="strip__spacer" />
 
-      <div className="strip__cell strip__cell--meta mono faint">
+      <Link to="/config#schedule" className="strip__cell strip__cell--meta mono faint" title="Edit the schedule">
         {health.data?.scheduler ? (
-          <span title={`cron ${health.data.scheduler.cron}`}>
-            next {relTime(health.data.scheduler.next_fire_at)}
-          </span>
+          health.data.scheduler.enabled ? (
+            <span title={`cron ${health.data.scheduler.cron}`}>
+              next {relTime(health.data.scheduler.next_fire_at)}
+            </span>
+          ) : (
+            <span className="tone-warn">schedule paused</span>
+          )
         ) : (
           <span>no schedule</span>
         )}
+      </Link>
+      <div className="strip__cell strip__cell--meta mono faint">
         <span className="strip__sep" aria-hidden="true">·</span>
         <span>v{health.data?.version ?? "—"}</span>
       </div>

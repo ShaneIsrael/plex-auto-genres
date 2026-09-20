@@ -6,7 +6,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from ..config import GenreRules, LibraryRun
+from ..config import GenreRules, LibraryRun, ScheduleSettings
 from ..models import MediaType
 
 
@@ -21,8 +21,21 @@ class PlexStatus(BaseModel):
 
 
 class SchedulerStatus(BaseModel):
-    cron: str
+    """What the in-process scheduler is set to do right now."""
+
+    cron: str | None = None
+    enabled: bool = True
+    #: ``config`` (the file's schedule block), ``env`` (``--cron`` / ``CRON_SCHEDULE``), ``none``.
+    source: Literal["config", "env", "none"] = "none"
     next_fire_at: float | None = None
+
+
+class CronPreview(BaseModel):
+    """Whether an expression parses, and when it would fire next."""
+
+    ok: bool
+    error: str | None = None
+    next_fire_at: list[float] = Field(default_factory=list)
 
 
 class Health(BaseModel):
@@ -60,6 +73,7 @@ class ConfigView(BaseModel):
     version: int
     defaults: dict[MediaType, GenreRules]
     libraries: list[LibraryRun]
+    schedule: ScheduleSettings
     secrets: Secrets
     providers: dict[str, Any] = Field(description="Non-secret provider settings.")
 
@@ -203,6 +217,7 @@ class ConfigDocument(BaseModel):
     version: int = 2
     defaults: dict[str, Any] = Field(default_factory=dict)
     libraries: list[dict[str, Any]] = Field(default_factory=list)
+    schedule: dict[str, Any] = Field(default_factory=dict)
 
 
 class ValidationIssue(BaseModel):

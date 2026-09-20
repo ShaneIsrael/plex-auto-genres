@@ -7,6 +7,7 @@ import type {
   CandidateView,
   ConfigDocument,
   ConfigView,
+  CronPreview,
   DoctorReport,
   Health,
   ItemStatusFilter,
@@ -139,6 +140,7 @@ export const api = {
   undoRun: (id: string) => post<UndoResult>(`/api/v1/runs/${encodeURIComponent(id)}/undo`),
   config: () => get<ConfigView>("/api/v1/config"),
   schema: () => get<Record<string, unknown>>("/api/v1/config/schema"),
+  cronPreview: (cron: string) => get<CronPreview>("/api/v1/schedule/preview", { cron }),
   doctor: () => get<DoctorReport>("/api/v1/doctor"),
   libraries: () => get<LibraryView[]>("/api/v1/libraries"),
   runs: (limit = 50, library?: string) => get<RunView[]>("/api/v1/runs", { limit, library }),
@@ -352,6 +354,16 @@ export function useJobEvents(jobId: string | null | undefined): LiveJob {
 export const useSchema = () =>
   useQuery({ queryKey: ["schema"], queryFn: api.schema, staleTime: Infinity });
 
+/** Live check of a cron expression; the caller debounces. */
+export const useCronPreview = (cron: string) =>
+  useQuery({
+    queryKey: ["cron", cron],
+    queryFn: () => api.cronPreview(cron),
+    enabled: cron.length > 0,
+    staleTime: 60_000,
+    retry: false,
+  });
+
 export function useSaveConfig() {
   const qc = useQueryClient();
   return useMutation({
@@ -360,6 +372,7 @@ export function useSaveConfig() {
       void qc.invalidateQueries({ queryKey: ["config"] });
       void qc.invalidateQueries({ queryKey: ["doctor"] });
       void qc.invalidateQueries({ queryKey: ["libraries"] });
+      void qc.invalidateQueries({ queryKey: ["health"] }); // the schedule lives in the config
     },
   });
 }

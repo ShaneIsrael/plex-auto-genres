@@ -215,7 +215,8 @@ class Store:
             for column, ddl in columns:
                 if column not in existing:
                     # Table and column names come from the constant above, not from input.
-                    self._conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}")  # nosec B608
+                    statement = f"ALTER TABLE {table} ADD COLUMN {column} {ddl}"  # nosec B608
+                    self._conn.execute(statement)
 
     def close(self) -> None:
         with self._lock:

@@ -21,6 +21,7 @@ from ..models import MediaItem, MediaType
 from ..pipeline import media_key
 from ..plexsvc.writer import undo_run
 from ..providers import GUID_SCHEMES, LookupRequest, build_providers
+from ..scheduler import next_fires, validate_cron
 from ..store import CachedState, run_status
 from . import schemas
 from .state import AppState
@@ -90,10 +91,13 @@ async def health(request: Request) -> schemas.Health:
     state = _state(request)
     link = await state.plex_link()
     scheduler = None
-    if state.scheduler_cron:
-        scheduler = schemas.SchedulerStatus(
-            cron=state.scheduler_cron, next_fire_at=state.scheduler_next
-        )
+    if state.scheduler is not None:
+        plan = state.scheduler.plan
+        if plan.cron:
+            scheduler = schemas.SchedulerStatus(
+                cron=plan.cron, enabled=plan.enabled, source=plan.source,  # type: ignore[arg-type]
+                next_fire_at=plan.next_fire_at,
+            )
     return schemas.Health(
         status="ok" if link.reachable else "degraded",
         version=__version__,
@@ -123,6 +127,7 @@ async def get_config(request: Request) -> schemas.ConfigView:
         version=config.version,
         defaults=config.defaults,
         libraries=config.libraries,
+        schedule=config.schedule,
         secrets=schemas.Secrets(
             plex_token=bool(config.plex.token),
             plex_password=bool(config.plex.password),
@@ -143,6 +148,16 @@ async def get_config(request: Request) -> schemas.ConfigView:
 async def get_schema() -> dict:
     """JSON Schema for the config file; the form generator's input."""
     return config_json_schema()
+
+
+@router.get("/schedule/preview", response_model=schemas.CronPreview)
+async def cron_preview(cron: str = Query(min_length=1, max_length=100)) -> schemas.CronPreview:
+    """Does the expression parse, and when would it fire next? For live form feedback."""
+    try:
+        validate_cron(cron)
+    except ValueError as exc:
+        return schemas.CronPreview(ok=False, error=str(exc))
+    return schemas.CronPreview(ok=True, next_fire_at=next_fires(cron, 3))
 
 
 @router.post("/config/validate", response_model=schemas.ValidationResult)

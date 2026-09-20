@@ -17,7 +17,7 @@ from fastapi.staticfiles import StaticFiles
 from .. import __version__
 from ..errors import PagError
 from ..jobs import JobOptions
-from ..scheduler import run_forever
+from ..scheduler import Scheduler
 from .auth import AuthMiddleware, AuthRuntime, AuthSettings
 from .auth import router as auth_router
 from .routes import router
@@ -57,8 +57,10 @@ def create_app(
     static_dir: str | Path | None = None,
     auth: AuthSettings | None = None,
 ) -> FastAPI:
-    """Build the app. ``cron`` also starts the scheduler inside the process.
+    """Build the app; a scheduler always runs inside the process.
 
+    ``cron`` is the fallback expression (``--cron`` / ``CRON_SCHEDULE``); the
+    config file's ``schedule`` block overrides it and can pause it, live.
     ``auth`` defaults to the environment (``PAG_WEB_PASSWORD`` & co). With no
     password the API is open; :func:`auth.check_bind` is what stops that from
     reaching a non-loopback interface unannounced.
@@ -75,32 +77,24 @@ def create_app(
         else:
             log.warning("Authentication DISABLED: anyone who can reach this port can use it")
         await state.jobs.start()
-        task: asyncio.Task | None = None
 
+        async def scheduled() -> None:
+            # Through the manager, so a scheduled pass shows up as jobs
+            # with live progress and queues behind anything manual.
+            jobs = state.jobs.enqueue_all(JobOptions(source="schedule"))
+            log.info("Scheduled pass queued %d job(s)", len(jobs))
+
+        state.scheduler = Scheduler(scheduled, settings=state.schedule_settings, fallback=cron)
+        task = asyncio.create_task(state.scheduler.run_forever(run_now=run_on_start))
         if cron:
-            state.scheduler_cron = cron
-
-            def note_next(fire_at: float) -> None:
-                state.scheduler_next = fire_at
-
-            async def scheduled() -> None:
-                # Through the manager, so a scheduled pass shows up as jobs
-                # with live progress and queues behind anything manual.
-                jobs = state.jobs.enqueue_all(JobOptions(source="schedule"))
-                log.info("Scheduled pass queued %d job(s)", len(jobs))
-
-            task = asyncio.create_task(
-                run_forever(cron, scheduled, run_now=run_on_start, on_schedule=note_next)
-            )
-            log.info("Scheduler armed: %s", cron)
+            log.info("Scheduler armed: %s (unless the config says otherwise)", cron)
 
         try:
             yield
         finally:
-            if task is not None:
-                task.cancel()
-                with contextlib.suppress(asyncio.CancelledError, Exception):
-                    await task
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await task
             await state.jobs.stop()
             await state.aclose()
             state.close()

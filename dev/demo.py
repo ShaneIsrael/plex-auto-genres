@@ -330,7 +330,8 @@ CONFIG_TEXT = """{
          "useKeywords": true, "overrides": {"maxGenres": 8}},
         {"library": "Films", "type": "standard-movie", "enabled": false},
         {"library": "TV Shows", "type": "standard-tv"}
-    ]
+    ],
+    "schedule": {"cron": "0 3 * * *", "enabled": true}
 }
 """
 
@@ -373,7 +374,7 @@ def seed(data: Path, sections: list[Section]) -> None:
 
     with Store(data / "logs" / "state.db") as store:
         # Offline caches, so neither doctor nor the AniDB mapper touch the network.
-        store.kv_set("mal_taxonomy_v1", json.dumps(sorted(ANIME_GENRES + ["Racing", "Suspense"])),
+        store.kv_set("mal_taxonomy_v1", json.dumps(sorted([*ANIME_GENRES, "Racing", "Suspense"])),
                      30 * 86400)
         anime = sections[0]
         store.kv_set("anidb_mapping_v1", json.dumps({
@@ -411,7 +412,7 @@ def seed(data: Path, sections: list[Section]) -> None:
                         error=f"{run.resolved_providers[0]}: no match for {item.title!r}",
                     )
             # Backdate the failures so some are due for a retry.
-            with store._tx() as conn:  # noqa: SLF001 - demo seeding
+            with store._tx() as conn:
                 conn.execute("UPDATE media_state SET updated_at = updated_at - ? WHERE status = 'failed'",
                              (2 * 86400,))
 
@@ -447,7 +448,7 @@ def seed(data: Path, sections: list[Section]) -> None:
                 store.finish_run(report)
             if kind == "undone":
                 store.mark_undone(run_id)
-            with store._tx() as conn:  # noqa: SLF001 - demo seeding
+            with store._tx() as conn:
                 conn.execute(
                     "UPDATE runs SET started_at = ?, finished_at = CASE WHEN finished_at IS NULL "
                     "THEN NULL ELSE ? END, undone_at = CASE WHEN undone_at IS NULL THEN NULL "
@@ -493,7 +494,7 @@ BASE_URL = f"http://127.0.0.1:{PORT}"
 
 
 def main() -> int:
-    global BASE_URL, PORT  # noqa: PLW0603 - simple script
+    global BASE_URL, PORT
 
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--host", default="127.0.0.1")

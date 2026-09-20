@@ -674,3 +674,47 @@ def test_a_run_owned_by_a_live_job_reports_running(tmp_path, config_file, monkey
 
         done = _wait_job(c, job["job_id"])
         assert c.get(f"/api/v1/runs/{done['run_ids'][0]}").json()["status"] == "ok"
+
+
+# -- schedule from the UI ----------------------------------------------------
+
+
+def test_health_reports_the_config_schedule_over_the_fallback(tmp_path, config_file, monkeypatch):
+    monkeypatch.setenv("PLEX_BASE_URL", "http://plex:32400")
+    monkeypatch.setenv("PLEX_TOKEN", "t")
+    monkeypatch.setattr(state_module.plex_client, "connect", lambda s: FakePlex())
+    doc = json.loads(config_file.read_text())
+    doc["schedule"] = {"cron": "30 2 * * *", "enabled": False}
+    config_file.write_text(json.dumps(doc))
+    with TestClient(create_app(config_file, tmp_path / "state.db", cron="0 1 * * *")) as c:
+        assert c.get("/api/v1/health").json()["scheduler"] == {
+            "cron": "30 2 * * *", "enabled": False, "source": "config", "next_fire_at": None}
+
+
+def test_cron_preview(client):
+    ok = client.get("/api/v1/schedule/preview", params={"cron": "0 1 * * *"}).json()
+    assert ok["ok"] and len(ok["next_fire_at"]) == 3 and ok["next_fire_at"][0] > time.time()
+    bad = client.get("/api/v1/schedule/preview", params={"cron": "every tuesday"}).json()
+    assert bad["ok"] is False and "Invalid cron" in bad["error"]
+
+
+def test_saving_a_schedule_replans_the_running_scheduler(tmp_path, config_file, monkeypatch):
+    monkeypatch.setenv("PLEX_BASE_URL", "http://plex:32400")
+    monkeypatch.setenv("PLEX_TOKEN", "t")
+    monkeypatch.setattr(state_module.plex_client, "connect", lambda s: FakePlex())
+    with TestClient(create_app(config_file, tmp_path / "state.db", cron="0 1 * * *")) as c:
+        assert c.get("/api/v1/health").json()["scheduler"]["source"] == "env"
+        view = c.get("/api/v1/config").json()
+        assert view["schedule"] == {"cron": None, "enabled": True}
+
+        body = {"version": 2, "defaults": view["defaults"], "libraries": view["libraries"],
+                "schedule": {"cron": "0 5 * * *", "enabled": True}}
+        assert c.put("/api/v1/config", json=body, headers={"If-Match": view["etag"]}).status_code == 200
+        scheduler = c.get("/api/v1/health").json()["scheduler"]
+        assert scheduler["cron"] == "0 5 * * *" and scheduler["source"] == "config"
+        assert json.loads(config_file.read_text())["schedule"] == {"cron": "0 5 * * *", "enabled": True}
+
+        body["schedule"] = {"cron": "five o'clock", "enabled": True}
+        refused = c.put("/api/v1/config", json=body)
+        assert refused.status_code == 422
+        assert refused.json()["errors"][0]["loc"] == ["schedule", "cron"]

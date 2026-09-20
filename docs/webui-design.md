@@ -439,6 +439,31 @@ went over everything above. What it changed, so the decisions stay legible:
   tell a live run from an interrupted one and never says "running"; the poster action
   has no undo.
 
+### Schedule from the UI — done
+
+- **The schedule is configuration**: a `schedule` block in `config.json` (`cron`,
+  `enabled`), so it is edited on the Config page with the same draft / validate / save /
+  ETag flow as everything else, survives restarts, and is visible in the file. The
+  `--cron` flag / `CRON_SCHEDULE` remains the fallback when the block has no expression.
+- **Live**: `scheduler.Scheduler` re-reads its settings on every plan (a save calls
+  `replan()`, and it re-checks every minute regardless), so a new expression or a pause
+  takes effect without a restart — in `serve` and in headless `schedule` alike.
+- **Pause is a flag, not a deletion**: `enabled: false` keeps the expression; the status
+  strip and the overview say "schedule paused" and link to the editor.
+- **Preview endpoint** (`GET /schedule/preview?cron=`) answers "does it parse, and
+  when would it fire" for the live form; the same croniter validates the saved value.
+
+### Visual pass — done
+
+- The defaults editor shows **one type at a time**, full width, chosen with a segmented
+  control: three rules forms side by side left each one 150 px per column and the tag
+  boxes spilling out of their panel. `.editor-grid` now switches to two columns on a
+  *container* query, so a rules form is never squeezed by the viewport rule.
+- The run menu is a **portal**: rendered into `<body>` with fixed positioning from the
+  trigger's rectangle, flipped above when there is no room below, closed on outside
+  click / Escape / scroll. Inside the card it sat under the rail's stacking context and
+  was cut off.
+
 ### Next
 
 Decide where secrets should live if they are ever to be edited from the UI — the

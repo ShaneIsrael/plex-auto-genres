@@ -26,8 +26,16 @@ export const newLibrary = (library = ""): LibraryRun => ({
 });
 
 export function toDocument(view: ConfigView): ConfigDocument {
-  return { version: view.version, defaults: view.defaults, libraries: view.libraries };
+  return { version: view.version, defaults: view.defaults, libraries: view.libraries, schedule: view.schedule };
 }
+
+/** Common schedules; anything else is "custom". */
+export const SCHEDULE_PRESETS: { key: string; label: string; cron: string }[] = [
+  { key: "night1", label: "01:00 nightly", cron: "0 1 * * *" },
+  { key: "night4", label: "04:00 nightly", cron: "0 4 * * *" },
+  { key: "6h", label: "every 6 h", cron: "0 */6 * * *" },
+  { key: "weekly", label: "Sun 03:00", cron: "0 3 * * 0" },
+];
 
 /** Structural equality; objects are built in a stable key order so this is enough. */
 export const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
@@ -96,7 +104,7 @@ export interface JsonSchemaLike {
   $defs?: Record<string, { properties?: Record<string, SchemaProperty> }>;
 }
 
-export type Help = (def: "LibraryRun" | "GenreRules", field: string) => string | undefined;
+export type Help = (def: "LibraryRun" | "GenreRules" | "ScheduleSettings", field: string) => string | undefined;
 
 export const helpFrom =
   (schema: JsonSchemaLike | undefined): Help =>

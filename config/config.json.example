@@ -91,5 +91,7 @@
                 "maxGenres": 8
             }
         }
-    ]
+    ],
+    "// schedule": "When the automatic pass runs (editable from the web UI). Leave cron null to use the container's CRON_SCHEDULE; enabled: false pauses it.",
+    "schedule": {"cron": "0 1 * * *", "enabled": true}
 }
