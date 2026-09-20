@@ -280,7 +280,7 @@ and `plex-auto-genres migrate-config --out …` converts a file without running 
 | A blind `sleep(4)` twice per anime — 8 s of dead time per title | Token buckets at the providers' real limits, requests in parallel |
 | Destructive and irreversible | Every run snapshotted and undoable |
 | `--dry` only honoured in one code path | Honoured everywhere |
-| amd64 only, 571 MB image, `gcc`/`g++` pulled in for numpy — which concatenated a list of 9 strings | amd64 + arm64, 97 MB, no compilers |
+| amd64 only, and `gcc`/`g++` pulled in for numpy — which concatenated a list of 9 strings | amd64 + arm64, 127 MB uncompressed, no compilers |
 
 ---
 
