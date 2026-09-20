@@ -56,27 +56,30 @@ ENV PYTHONUNBUFFERED=1 \
     PAG_WEB_PORT=8095 \
     CRON_SCHEDULE="0 1 * * *" \
     RUN_ON_START=true \
+    PUID=1000 \
+    PGID=1000 \
     TZ=UTC
 
-# tzdata is what makes the TZ variable mean anything on Alpine. Its version
-# tracks the Alpine release of the base image; pinning it would break every
-# rebuild after the next tzdata update for no security gain.
+# tzdata is what makes the TZ variable mean anything on Alpine; su-exec lets
+# the entrypoint start as root, hand a v1 install's root-owned volumes to the
+# runtime user, then drop privileges. Their versions track the Alpine release
+# of the base image; pinning them would break every rebuild after the next
+# update for no security gain.
 # hadolint ignore=DL3018
-RUN apk add --no-cache tzdata
+RUN apk add --no-cache tzdata su-exec
 
 COPY --from=builder /install /usr/local
 COPY --from=ui /ui/dist /app/static
 COPY docker/entrypoint.sh /entrypoint.sh
 COPY docker/healthcheck.sh /healthcheck.sh
 
-# Run as a non-root user; the mounted volumes are the only writable paths.
+# The app runs as PUID:PGID (default 1000:1000); the entrypoint drops to it
+# after fixing the ownership of volumes a v1 container (root) left behind.
 RUN adduser -S -u 1000 -h /home/pag pag \
  && chmod +x /entrypoint.sh /healthcheck.sh \
  && mkdir -p /config /logs /posters \
  && chown -R 1000 /config /logs /posters
 
-# Numeric, so the host (and Kubernetes' runAsNonRoot) can verify it.
-USER 1000
 WORKDIR /
 EXPOSE 8095
 

@@ -152,3 +152,11 @@ def test_write_through_a_symlink_keeps_the_link(tmp_path):
     assert link.is_symlink(), "the link itself was not replaced by a regular file"
     assert json.loads(real.read_text())["libraries"][0]["library"] == "A"
     assert backup == real.with_name("config.json.bak") and backup.is_file()
+
+
+def test_write_keeps_the_file_mode(tmp_path):
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps({"version": 2, "libraries": []}))
+    path.chmod(0o664)
+    write_config(path, {"version": 2, "defaults": {}, "libraries": []})
+    assert path.stat().st_mode & 0o777 == 0o664

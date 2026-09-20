@@ -209,24 +209,49 @@ progress file.
 
 ## Upgrading from v1
 
-Nothing is required: a v1 `config.json` is migrated in memory at load, the old
-`logs/plex-*-*.txt` progress files are imported into the database on first run (and
-adopted under each item's Plex GUID as the library is read), and
-`python plex-auto-genres.py --library X --type anime` still works, config file or not.
+Pull the new image (or `pip install -U`) and keep your volumes and environment as they
+are. The first start does the rest and narrates it in the console:
 
-A container carried over unchanged keeps its nightly schedule: with no `PAG_WEB_PASSWORD`
-the image runs headless, exactly as v1 did. Set the password (or `PAG_MODE=serve`) to
-turn the web UI on.
-
-To convert the file on disk:
-
-```bash
-plex-auto-genres migrate-config --out config/config.json
+```
+Config /config/config.json was in the v1 layout: converted to v2. The original is kept as /config/config.json.v1.
+  library 'Animes' (anime): genre field, replace existing genres, ratings
+  library 'Films' (standard-movie): collections, sort
+  defaults for anime: 1 ignored, 3 replaced, sort prefix '*', 4 sorted collections
+Imported 812 v1 progress entries for 'Animes' from plex-anime-successful.txt and plex-anime-failures.txt
+Renamed plex-anime-successful.txt to plex-anime-successful.txt.imported (kept as a backup; v2 keeps its state in the database)
+v1 files not needed by v2, left untouched: plex-anime-ratings-progress.txt, plex-auto-genres-automate.log
 ```
 
-Then run `plex-auto-genres doctor` — it will flag config entries that no longer match
-anything, including MAL genres that were renamed (`Cars` → `Racing`,
-`Shoujo Ai` → `Girls Love`, `Thriller` → `Suspense`, …).
+What that means, step by step:
+
+- **`config.json`** is rewritten in the v2 layout; the v1 file stays next to it as
+  `config.json.v1` (a second upgrade never overwrites it). v1's per-*type* rules become
+  the type defaults, so behaviour is unchanged; per-library overrides are opt-in.
+- **`logs/plex-<type>-*.txt`** progress files are imported into `logs/plex-auto-genres.db`
+  for every configured library of that type, then renamed `*.imported`. Items keep
+  their "done" status; as each library is read they are re-keyed by Plex GUID so a
+  renamed file no longer orphans them. The rating and rating-collection progress files
+  are not needed (v2 derives both from its cache) and are left where they are.
+- **Environment**: every v1 variable keeps its name and meaning (`PLEX_USERNAME` /
+  `PLEX_PASSWORD` / `PLEX_SERVER_NAME`, or `PLEX_BASE_URL` / `PLEX_TOKEN`, `TMDB_API_KEY`,
+  `PLEX_COLLECTION_PREFIX`). Everything new is optional: `PAG_WEB_PASSWORD` turns the web
+  UI on, `CRON_SCHEDULE` / `TZ` / `RUN_ON_START` tune the nightly pass, `PUID` / `PGID`
+  pick the user the app runs as.
+- **Ownership**: the v1 image ran as root; this one runs as `PUID:PGID` (default
+  `1000:1000`) and, on start, hands the mounted `/config`, `/logs` and `/posters` to that
+  user. `PUID=0` keeps everything as root.
+- **Mode**: with no `PAG_WEB_PASSWORD` the container runs headless on its schedule,
+  exactly as v1 did. Set the password (or `PAG_MODE=serve` with `PAG_WEB_INSECURE=1`) to
+  get the console on port 8095.
+
+`plex-auto-genres doctor` on a v1 file says so before anything is touched, and after the
+upgrade flags config entries that no longer match anything, including MAL genres that
+were renamed (`Cars` → `Racing`, `Shoujo Ai` → `Girls Love`, `Thriller` → `Suspense`, …).
+
+**Rolling back** is renaming: `config.json.v1` back to `config.json` and the
+`*.imported` files back to their names; the database can stay. From the command line,
+`python plex-auto-genres.py --library X --type anime` still works, config file or not,
+and `plex-auto-genres migrate-config --out …` converts a file without running anything.
 
 ### What changed, and why it matters
 

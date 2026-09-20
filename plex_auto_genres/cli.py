@@ -23,6 +23,7 @@ from .config import (
 )
 from .doctor import DoctorReport, run_doctor
 from .errors import ConfigError, PagError, PlexConnectionError
+from .migration import migrate_install
 from .models import MediaType, RunReport
 from .plexsvc import client as plex_client
 from .plexsvc.writer import undo_run
@@ -146,8 +147,10 @@ def build_parser() -> argparse.ArgumentParser:
 # --------------------------------------------------------------------------
 
 
-def _setup_logging(verbosity: int) -> None:
-    level = logging.WARNING
+def _setup_logging(verbosity: int, *, daemon: bool = False) -> None:
+    """WARNING for one-shot commands, INFO for the long-running ones (their
+    console *is* the log), DEBUG with -vv. Migration steps always show."""
+    level = logging.INFO if daemon else logging.WARNING
     if verbosity == 1:
         level = logging.INFO
     elif verbosity >= 2:
@@ -156,6 +159,8 @@ def _setup_logging(verbosity: int) -> None:
         level=level, format="%(asctime)s %(levelname)-7s %(name)s: %(message)s",
         datefmt="%H:%M:%S",
     )
+    # What an upgrade did to the files must be visible whatever the verbosity.
+    logging.getLogger("plex_auto_genres.migration").setLevel(min(level, logging.INFO))
     # plexapi is extremely chatty at DEBUG.
     logging.getLogger("plexapi").setLevel(max(level, logging.INFO))
     logging.getLogger("httpx").setLevel(logging.WARNING)
@@ -567,6 +572,42 @@ def cmd_serve(args, style: Style) -> int:
 # --------------------------------------------------------------------------
 
 
+def _dispatch(args, store: Store, style: Style) -> int:
+    """Run the command that needs the state database open."""
+    if args.command in ("run", "serve", "schedule"):
+        # A v1 install is brought up to date here, once, and says so.
+        migrate_install(args.config, Path(args.db).parent, store)
+    if args.command == "doctor":
+        return cmd_doctor(args.config, store, style, args.json, offline=args.offline)
+    if args.command in ("bind", "unbind", "bindings"):
+        # Bindings are keyed by the config's spelling of the library;
+        # the config itself is optional for them, as in v1.
+        config = load_config(args.config, missing_ok=True)
+        if args.command == "bind":
+            return cmd_bind(args, config, store, style)
+        if args.command == "unbind":
+            return cmd_unbind(args, config, store, style)
+        return cmd_bindings(args, config, store, style, args.json)
+    if args.command == "runs":
+        return cmd_runs(args, store, style, args.json)
+    if args.command == "failures":
+        return cmd_failures(args, store, style, args.json)
+    if args.command == "schedule":
+        return asyncio.run(cmd_schedule(args, args.config, args.db, style))
+    if args.command == "serve":
+        store.close()  # the app's lifespan opens its own connection
+        return cmd_serve(args, style)
+
+    # `run --library X --type T` never needed a config file in v1.
+    adhoc = args.command == "run" and bool(args.library) and bool(args.type)
+    config = load_config(args.config, missing_ok=adhoc or args.command == "query")
+    if args.command == "query":
+        return asyncio.run(cmd_query(args, config, style))
+    if args.command == "undo":
+        return asyncio.run(cmd_undo(args, config, store, style))
+    return asyncio.run(cmd_run(args, config, store, style))
+
+
 def main(argv: list[str] | None = None) -> int:
     """Parse the command line and dispatch. Returns the process exit code."""
     load_dotenv()
@@ -577,7 +618,7 @@ def main(argv: list[str] | None = None) -> int:
         # "run" is the default command; keep the global options typed before it.
         args = parser.parse_args([*raw_argv, "run"])
 
-    _setup_logging(args.verbose)
+    _setup_logging(args.verbose, daemon=args.command in ("serve", "schedule"))
     style = Style()
 
     try:
@@ -588,35 +629,7 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_migrate_config(args.config, args.out, style)
 
         with Store(args.db) as store:
-            if args.command == "doctor":
-                return cmd_doctor(args.config, store, style, args.json, offline=args.offline)
-            if args.command in ("bind", "unbind", "bindings"):
-                # Bindings are keyed by the config's spelling of the library;
-                # the config itself is optional for them, as in v1.
-                config = load_config(args.config, missing_ok=True)
-                if args.command == "bind":
-                    return cmd_bind(args, config, store, style)
-                if args.command == "unbind":
-                    return cmd_unbind(args, config, store, style)
-                return cmd_bindings(args, config, store, style, args.json)
-            if args.command == "runs":
-                return cmd_runs(args, store, style, args.json)
-            if args.command == "failures":
-                return cmd_failures(args, store, style, args.json)
-            if args.command == "schedule":
-                return asyncio.run(cmd_schedule(args, args.config, args.db, style))
-            if args.command == "serve":
-                store.close()  # the app's lifespan opens its own connection
-                return cmd_serve(args, style)
-
-            # `run --library X --type T` never needed a config file in v1.
-            adhoc = args.command == "run" and bool(args.library) and bool(args.type)
-            config = load_config(args.config, missing_ok=adhoc or args.command == "query")
-            if args.command == "query":
-                return asyncio.run(cmd_query(args, config, style))
-            if args.command == "undo":
-                return asyncio.run(cmd_undo(args, config, store, style))
-            return asyncio.run(cmd_run(args, config, store, style))
+            return _dispatch(args, store, style)
 
     except KeyboardInterrupt:
         print(style.yellow("\nInterrupted. Progress up to this point has been saved."))

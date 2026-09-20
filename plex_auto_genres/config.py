@@ -644,9 +644,13 @@ def write_config(path: str | Path, document: dict[str, Any]) -> tuple[str, Path 
         shutil.copyfile(path, backup)
 
     path.parent.mkdir(parents=True, exist_ok=True)
+    # mkstemp creates 0600 files; keep the original's mode (a hand-edited
+    # 0644 on a bind mount stays readable by the host user).
+    mode = path.stat().st_mode & 0o777 if path.exists() else 0o644
     fd, tmp_name = tempfile.mkstemp(dir=path.parent, prefix=f".{path.stem}-", suffix=".tmp")
     tmp = Path(tmp_name)
     try:
+        os.fchmod(fd, mode)
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
             handle.write(text)
             handle.flush()

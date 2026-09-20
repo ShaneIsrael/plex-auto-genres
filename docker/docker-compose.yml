@@ -34,8 +34,10 @@ services:
       TZ: "Europe/Paris"
       # --- Tuning
       PAG_CONCURRENCY: "4"
-    # The image already runs as uid 1000; override if your volumes differ.
-    # user: "1000:1000"
+    # The app runs as PUID:PGID (default 1000:1000). On the first start the
+    # container hands the mounted directories to that user, so volumes written
+    # by the v1 image (which ran as root) keep working. PUID=0 keeps root.
+    # environment: { PUID: "1000", PGID: "1000" }
 
 # Behind a reverse proxy that terminates TLS, set PAG_WEB_SECURE_COOKIE=1 and
 # forward X-Forwarded-Proto so the session cookie is marked Secure.

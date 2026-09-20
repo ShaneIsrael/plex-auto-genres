@@ -464,6 +464,20 @@ went over everything above. What it changed, so the decisions stay legible:
   click / Escape / scroll. Inside the card it sat under the rail's stacking context and
   was cut off.
 
+### Upgrade path — done
+
+- **The first start migrates, on disk, and says what it did.** `migration.migrate_install`
+  runs before `run`, `serve` and `schedule`: a v1 `config.json` is converted (original
+  kept as `config.json.v1`), the v1 progress files are imported for every configured
+  library of their type and renamed `*.imported`, the unused v1 files are named and
+  left alone. Idempotent; its logger is pinned to INFO so the story shows whatever the
+  verbosity, and the daemon commands log at INFO by default anyway.
+- **The container starts as root and drops to `PUID:PGID`.** v1 ran as root, so every
+  existing volume is root-owned; refusing to write it would have turned "pull the new
+  tag" into a support thread. The entrypoint chowns only directories that hold files
+  owned by someone else, then `su-exec`s. `PUID=0` keeps v1's behaviour.
+- **`doctor` warns on a v1 layout** before anything is touched, so a dry look is possible.
+
 ### Next
 
 Decide where secrets should live if they are ever to be edited from the UI — the

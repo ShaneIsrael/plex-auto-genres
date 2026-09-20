@@ -210,6 +210,7 @@ class AuthRuntime:
 
     @classmethod
     def build(cls, settings: AuthSettings, store: Store) -> "AuthRuntime":
+        """Derive the session key (when a password is set) and a fresh limiter."""
         signer = (
             SessionSigner(settings.password, persistent_secret(store))
             if settings.password

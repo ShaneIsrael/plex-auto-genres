@@ -19,6 +19,10 @@ if [ "$MODE" = "serve" ]; then
     else
         wget -qO- "http://127.0.0.1:${PAG_WEB_PORT:-8095}/api/v1/health" >/dev/null 2>&1
     fi
+elif [ "$(id -u)" = "0" ] && [ "${PUID:-1000}" != "0" ]; then
+    # As the runtime user: a root-owned WAL file would lock the app out of its database.
+    su-exec "${PUID:-1000}:${PGID:-1000}" \
+        plex-auto-genres --config "$PAG_CONFIG" --db "$PAG_DB" doctor --offline >/dev/null 2>&1
 else
     plex-auto-genres --config "$PAG_CONFIG" --db "$PAG_DB" doctor --offline >/dev/null 2>&1
 fi
