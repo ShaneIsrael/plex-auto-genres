@@ -1,20 +1,94 @@
-name: Publish container
+name: Publish release container
 
+# The image is published when a release is published — not on every push to
+# the default branch. A tag is a decision; `latest` therefore always means
+# "the most recent release someone cut", and nothing reaches the registry
+# without the full test suite passing on that exact tag.
+#
+# Cutting a release:
+#   1. bump __version__ in plex_auto_genres/__init__.py and version in
+#      pyproject.toml (they must match the tag, see the check below),
+#   2. tag it: git tag v2.1.0 && git push origin v2.1.0,
+#   3. publish a GitHub release for that tag (a pre-release is published too,
+#      but does not move `latest`).
+# Re-running a build for an existing tag: "Run workflow" from that tag.
 on:
-  push:
-    branches: [master]
-    tags: ["v*"]
+  release:
+    types: [published]
   workflow_dispatch:
+    inputs:
+      latest:
+        description: "Also move the 'latest' tag to this build"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
   packages: write
 
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
+  # An image nobody tested must not reach the registry. This runs the whole
+  # CI against the tag being released.
+  verify:
+    uses: ./.github/workflows/ci.yml
+    with:
+      skip-image-build: "yes"
+
   publish:
+    needs: verify
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Refuse anything that is not a tag
+        if: github.ref_type != 'tag'
+        run: |
+          echo "::error::Publish from a tag. '${{ github.ref_name }}' is a ${{ github.ref_type }};" \
+               "the Run workflow dropdown lists tags as well as branches."
+          exit 1
+
+      - name: The tag and the packaged version must agree
+        # The version the image reports over /api/v1/health and in --version
+        # comes from the package, so a tag that disagrees would ship an image
+        # that lies about what it is.
+        run: |
+          python3 - "$GITHUB_REF_NAME" <<'PY'
+          import pathlib, re, sys
+
+          def version_in(path, pattern):
+              found = re.search(pattern, pathlib.Path(path).read_text(encoding="utf-8"), re.M)
+              return found.group(1) if found else f"<not found in {path}>"
+
+          tag = sys.argv[1].removeprefix("v")
+          package = version_in("plex_auto_genres/__init__.py", r'^__version__ = "([^"]+)"')
+          project = version_in("pyproject.toml", r'^version = "([^"]+)"')
+
+          if len({tag, package, project}) != 1:
+              print(f"::error::Version mismatch — tag {tag!r}, "
+                    f"plex_auto_genres.__version__ {package!r}, pyproject {project!r}")
+              raise SystemExit(1)
+          print(f"Publishing {tag}")
+          PY
+
+      - name: Decide whether this moves 'latest'
+        id: latest
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            # A pre-release is published, but nobody gets it by pulling `latest`.
+            if [ "${{ github.event.release.prerelease }}" = "true" ]; then
+              value=false
+            else
+              value=true
+            fi
+          else
+            value="${{ inputs.latest }}"
+          fi
+          echo "value=$value" >> "$GITHUB_OUTPUT"
+          echo "latest: $value"
 
       - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
@@ -31,12 +105,13 @@ jobs:
         uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5.10.0
         with:
           images: ghcr.io/${{ github.repository }}
+          # v2.1.3 publishes 2.1.3, 2.1 and 2, so a compose file can pin as
+          # loosely or as tightly as its owner wants.
           tags: |
-            type=ref,event=branch
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=semver,pattern={{major}}
-            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=latest,enable=${{ steps.latest.outputs.value == 'true' }}
 
       - name: Build and push
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
@@ -53,3 +128,13 @@ jobs:
           cache-to: type=gha,mode=max
           provenance: true
           sbom: true
+
+      - name: Say what was published
+        run: |
+          {
+            echo "### Published"
+            echo
+            echo '```'
+            echo "${{ steps.meta.outputs.tags }}"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

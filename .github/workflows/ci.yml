@@ -5,9 +5,17 @@ on:
     branches: [master, main]
   pull_request:
   workflow_dispatch:
+  # Called by the release workflow, so a published image is always an image
+  # that passed exactly these checks on exactly that tag.
+  workflow_call:
+    inputs:
+      skip-image-build:
+        description: "Set to 'yes' when the caller builds and pushes the image itself."
+        type: string
+        default: "no"
 
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -59,6 +67,9 @@ jobs:
       - run: pnpm build
 
   docker:
+    # Skipped when the release workflow calls us: it builds the same image
+    # for the same two architectures a moment later, and pushes that one.
+    if: inputs.skip-image-build != 'yes'
     needs: [test, ui]
     runs-on: ubuntu-latest
     steps:

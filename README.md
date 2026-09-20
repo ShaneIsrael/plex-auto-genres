@@ -28,8 +28,10 @@ as Plex genre tags or as collections.
 
 ### Docker (recommended)
 
-The image is published by CI as `ghcr.io/<github-user>/plex-auto-genres`; `OWNER`
-below stands for that account.
+The image is published to `ghcr.io/<github-user>/plex-auto-genres` when a release is
+published — `OWNER` below stands for that account. Every release publishes
+`2.1.3`, `2.1` and `2` alongside `latest`, so a compose file can pin as loosely or as
+tightly as its owner wants (`latest` skips pre-releases).
 
 ```bash
 mkdir -p plex-auto-genres/{config,logs} && cd plex-auto-genres
@@ -301,6 +303,26 @@ pnpm --dir ui build        # emits into plex_auto_genres/server/static/
 Run `plex-auto-genres serve` alongside `pnpm dev` for live reload. The Docker build
 compiles the UI in its own stage, so node never enters the runtime image. Design notes:
 [docs/design-system.md](docs/design-system.md).
+
+### Releasing
+
+CI (tests on three Python versions, pylint, `tsc`, the UI build and a two-architecture
+container build) runs on every push and pull request. Publishing is separate and
+deliberate: it happens when a **GitHub release is published**, never on a push.
+
+```bash
+# 1. bump the version in the two places the image reports it from
+$EDITOR plex_auto_genres/__init__.py pyproject.toml   # __version__ / version
+# 2. tag and push
+git tag v2.1.0 && git push origin v2.1.0
+# 3. publish a release for that tag on GitHub
+```
+
+The workflow re-runs the whole test suite against that tag, refuses to publish if the
+tag and the packaged version disagree, then builds and pushes `2.1.0`, `2.1`, `2` and
+`latest` for amd64 and arm64, with provenance and an SBOM. A pre-release is published
+under its own tags but does not move `latest`. To rebuild an existing tag, run the
+workflow manually from that tag.
 
 ### Demo stack
 
