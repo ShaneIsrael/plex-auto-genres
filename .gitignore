@@ -1,7 +1,34 @@
 .env
+.venv/
+venv/
 .vscode/
-__pycache__/*
+.idea/
 __pycache__/
-logs/*
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+
+# Runtime state: the SQLite database, run history and v1 progress files.
+logs/
+
+# Your real configuration. Only the .example is tracked.
 config/config.json
+
+# Local compose overrides
 docker-compose.yml
+docker-compose.override.yml
+
+# Session scratch from the remember hook
+.remember/
+
+# Built web UI (produced by `pnpm --dir ui build`, shipped inside the Docker image)
+plex_auto_genres/server/static/
+ui/node_modules/
+ui/dist/
+
+# Demo stack state (python dev/demo.py)
+dev/.demo/
+.claude/launch.json

@@ -1,0 +1,5 @@
+# pnpm refuses to run install-time scripts unless allow-listed here.
+# esbuild's postinstall only fetches its platform binary; nothing else in
+# the tree needs to run a script at install time.
+allowBuilds:
+  esbuild: true

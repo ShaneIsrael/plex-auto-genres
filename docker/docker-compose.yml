@@ -1,16 +1,54 @@
 services:
   plex-auto-genres:
     container_name: plex-auto-genres
-    image: shaneisrael/plex-auto-genres
+    # CI publishes to ghcr.io/<github-user>/plex-auto-genres; put yours here.
+    image: ghcr.io/OWNER/plex-auto-genres:latest
+    restart: unless-stopped
+    ports:
+      - "8095:8095"          # web UI + API; drop this block for a headless install
     volumes:
-      - path/to/config:/config    # /Users/some_user/git/plex-auto-genres/config:/config
-      - path/to/posters:/posters  # /Users/some_user/git/plex-auto-genres/posters:/posters
-      - path/to/logs:/logs        # /Users/some_user/git/plex-auto-genres/logs:/logs
+      - ./config:/config     # must contain config.json
+      - ./logs:/logs         # state database and run history
+      - ./posters:/posters   # optional, only needed for setPosters
     environment:
-      - PLEX_USERNAME=xxx       # Do not surround in quotes
-      - PLEX_PASSWORD=xxx       # Do not surround in quotes
-      - PLEX_SERVER_NAME=xxx    # Do not surround in quotes
-      - TMDB_API_KEY=xxx        # Do not surround in quotes
-      - PLEX_COLLECTION_PREFIX= # Do not surround in quotes
-      - PLEX_TOKEN=             # Do not surround in quotes
-      - PLEX_BASE_URL="http://1.2.3.4:32400"
+      # --- Plex (token auth is preferred; see the README for how to find it)
+      PLEX_BASE_URL: "http://192.168.1.10:32400"
+      PLEX_TOKEN: "${PLEX_TOKEN:?set PLEX_TOKEN in a .env file next to this compose file}"
+      PLEX_COLLECTION_PREFIX: ""
+      # --- Metadata providers
+      TMDB_API_KEY: "${TMDB_API_KEY:-}"   # not needed for anime-only setups
+      # --- Mode: "serve" (web UI + scheduler) or "schedule" (headless, as v1).
+      # Unset, the image picks serve when a login is configured, else schedule.
+      PAG_MODE: "serve"
+      PAG_WEB_PORT: "8095"
+      # --- Login. Required in serve mode: the container listens on every
+      # interface, and the API can run jobs and rewrite your config.
+      # Put the value in the .env file next to this compose file.
+      PAG_WEB_PASSWORD: "${PAG_WEB_PASSWORD:?set PAG_WEB_PASSWORD (or PAG_WEB_INSECURE=1) in .env}"
+      # PAG_WEB_INSECURE: "1"       # run without a login; only on a private network you trust
+      # PAG_WEB_SESSION_DAYS: "30"
+      # PAG_WEB_SECURE_COOKIE: "1"  # force the Secure flag behind an https reverse proxy
+      # --- Scheduling
+      CRON_SCHEDULE: "0 1 * * *"
+      RUN_ON_START: "true"
+      TZ: "Europe/Paris"
+      # --- Tuning
+      PAG_CONCURRENCY: "4"
+      # --- Ownership of the mounted volumes (see the note below)
+      PUID: "1000"
+      PGID: "1000"
+# The app runs as PUID:PGID — set them in the environment block above; the
+# defaults are 1000:1000. On the first start the container hands the mounted
+# /config and /logs to that user, so volumes written by the v1 image (which ran
+# as root) keep working. PUID=0 keeps everything as root, as v1 did.
+#
+# Adding a `user:` key here instead pins the container to that uid and disables
+# the hand-over; if the volumes are not already owned by it, run once:
+#     docker compose run --rm --user 0 plex-auto-genres fix-permissions
+
+# Behind a reverse proxy that terminates TLS, set PAG_WEB_SECURE_COOKIE=1 and
+# forward X-Forwarded-Proto so the session cookie is marked Secure.
+#
+# Secrets note: putting PLEX_TOKEN directly in this file means it lands in
+# `docker inspect` and your shell history. Prefer a .env file beside the
+# compose file (git-ignored), or Docker secrets on Swarm.

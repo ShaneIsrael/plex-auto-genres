@@ -1,52 +1,84 @@
-#pylint: disable=no-member, line-too-long
+#!/usr/bin/env python3
+"""Backwards-compatible entry point.
+
+The implementation moved into the ``plex_auto_genres`` package in v2. This
+shim keeps ``python plex-auto-genres.py ...`` working, and translates the v1
+flags into their v2 equivalents so existing scripts and cron jobs do not break.
+"""
+
+from __future__ import annotations
+
 import sys
-from src.args import SET_POSTERS, LIBRARY, TYPE, NO_PROMPT, SORT, QUERY, RATE_ANIME, RATING_COLS
-from src.colors import bcolors
-from src.setup import PLEX_COLLECTION_PREFIX, PLEX_SERVER_NAME, PLEX_BASE_URL
-from src.util import confirm, query
-from src.plex import connectToPlex, uploadCollectionArt, sortCollections, generate, createRatingCollections, setAnimeRatings
+
+from plex_auto_genres.cli import main
+
+#: v1 flag -> v2 replacement. ``None`` means the flag is now the default.
+_V1_FLAGS = {
+    "--set-posters": ("run", "--only", "posters"),
+    "--sort": ("run", "--only", "sort"),
+    "--rate-anime": ("run", "--only", "ratings"),
+    "--create-rating-collections": ("run", "--only", "rating-collections"),
+}
+_V1_SUBCOMMANDS = {"run", "query", "bind", "unbind", "bindings", "undo", "runs",
+                   "failures", "doctor", "schema", "migrate-config", "schedule"}
 
 
+def translate(argv: list[str]) -> list[str]:
+    """Rewrite a v1 command line into the v2 grammar."""
+    if not argv or argv[0] in _V1_SUBCOMMANDS or argv[0] in ("-h", "--help", "--version"):
+        return argv
 
-if __name__ == '__main__':
-    if QUERY:
-        query(QUERY)
-        sys.exit()
+    out: list[str] = ["run"]
+    i = 0
+    while i < len(argv):
+        arg = argv[i]
+        if arg in _V1_FLAGS:
+            out.extend(_V1_FLAGS[arg][1:])
+        elif arg == "--query":
+            # --query took the place of a subcommand in v1. --type may sit on
+            # either side of it (the v1 README puts it first).
+            type_arg = _extract_value(argv, "--type")
+            titles = _positional_words(argv[i + 1:])
+            return ["query", *titles, *(["--type", type_arg] if type_arg else [])]
+        elif arg in ("--use-genres", "--use-keywords", "--clear-genres"):
+            print(
+                f"note: {arg} is now a per-library setting in config/config.json; "
+                "the config value is used.",
+                file=sys.stderr,
+            )
+        else:
+            out.append(arg)
+        i += 1
+    return out
 
-    plex = connectToPlex()
-    if not plex:
-        sys.exit()
-        
-    if RATE_ANIME:
-        print(f'\nYou are about to update your {bcolors.WARNING}[{LIBRARY}]{bcolors.ENDC} collection\'s ratings with ratings from MyAnimeList.')
-        if NO_PROMPT or confirm():
-            setAnimeRatings(plex)
-        sys.exit()
 
-    if RATING_COLS:
-        print(f'\nYou are about to create [{bcolors.WARNING}{TYPE}{bcolors.ENDC}] rating collection tags for the library [{bcolors.WARNING}{LIBRARY}{bcolors.ENDC}] on your server [{bcolors.WARNING}{(PLEX_SERVER_NAME or PLEX_BASE_URL)}{bcolors.ENDC}].')
-        if NO_PROMPT or confirm():
-            createRatingCollections(plex)
-        sys.exit()
+def _extract_value(argv: list[str], flag: str) -> str | None:
+    """The value following ``flag``, or ``None``."""
+    if flag in argv:
+        index = argv.index(flag)
+        if index + 1 < len(argv):
+            return argv[index + 1]
+    return None
 
-    if SET_POSTERS:
-        print(f'\nYou are about to update your {bcolors.WARNING}[{LIBRARY}]{bcolors.ENDC} collection\'s posters to any matching image titles located at {bcolors.WARNING}posters/{bcolors.ENDC}.')
-        if NO_PROMPT or confirm():
-            uploadCollectionArt(plex)
 
-    if SORT:
-        print(f'\nYou are about to sort {bcolors.WARNING}[{LIBRARY}]{bcolors.ENDC} collection\'s by prefixing their sort titles with our prefix character set in {bcolors.WARNING}config/config.json{bcolors.ENDC}.')
-        if NO_PROMPT or confirm():
-            sortCollections(plex, LIBRARY)
+#: v1 flags that consume the argument after them.
+_VALUE_FLAGS = {"--type", "--library"}
 
-    if (not SET_POSTERS and not SORT):
-        CONFIRMATION = f'\nYou are about to create [{bcolors.WARNING}{TYPE}{bcolors.ENDC}] genre collection tags for the library [{bcolors.WARNING}{LIBRARY}{bcolors.ENDC}] on your server [{bcolors.WARNING}{(PLEX_SERVER_NAME or PLEX_BASE_URL)}{bcolors.ENDC}].'
-        if PLEX_COLLECTION_PREFIX:
-            CONFIRMATION += ' With prefix ['+bcolors.WARNING+PLEX_COLLECTION_PREFIX+bcolors.ENDC+'].'
 
-        print(CONFIRMATION)
-        if NO_PROMPT or confirm():
-            UPDATE_COUNT = generate(plex)
-            print(f'Updated {UPDATE_COUNT} entrie(s) since last run.')
-    
-    print()
+def _positional_words(argv: list[str]) -> list[str]:
+    """Bare words, skipping both flags and the values they consume."""
+    words: list[str] = []
+    skip = False
+    for arg in argv:
+        if skip:
+            skip = False
+            continue
+        if arg.startswith("-"):
+            skip = arg in _VALUE_FLAGS
+            continue
+        words.append(arg)
+    return words
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(translate(sys.argv[1:])))
