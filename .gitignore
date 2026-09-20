@@ -28,3 +28,7 @@ docker-compose.override.yml
 plex_auto_genres/server/static/
 ui/node_modules/
 ui/dist/
+
+# Demo stack state (python dev/demo.py)
+dev/.demo/
+.claude/launch.json

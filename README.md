@@ -264,6 +264,23 @@ Run `plex-auto-genres serve` alongside `pnpm dev` for live reload. The Docker bu
 compiles the UI in its own stage, so node never enters the runtime image. Design notes:
 [docs/design-system.md](docs/design-system.md).
 
+### Demo stack
+
+To try the console without a Plex server or any API key:
+
+```bash
+pnpm --dir ui build && python dev/demo.py
+```
+
+That is the real server, job manager and pipeline on top of an in-memory fake Plex
+("Home Media Server": five libraries, several hundred items with GUIDs, genres, ratings and
+posters) and fake metadata providers that answer in about a third of a second and miss a
+few titles on purpose. It comes seeded with weeks of run history, a partly processed
+cache, two bindings and a config with comments. Open http://127.0.0.1:8095, password
+`demo`. Runs, cancels, undos, bindings and config edits all work and persist in
+`dev/.demo/` (git-ignored); `--reset` starts over, `--port` / `--password` do what they say.
+Nothing in the demo touches the network.
+
 The layout is deliberately service-shaped rather than CLI-shaped, because a web UI is
 planned:
 
